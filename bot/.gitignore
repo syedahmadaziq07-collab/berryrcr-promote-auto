@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+database/*.db
+sessions/*.session
+sessions/*.session-journal
+media/*
+!media/.gitkeep
+*.log
+.DS_Store

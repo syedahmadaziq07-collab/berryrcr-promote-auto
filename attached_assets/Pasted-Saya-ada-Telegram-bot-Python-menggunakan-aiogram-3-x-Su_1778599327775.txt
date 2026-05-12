@@ -1,0 +1,282 @@
+Saya ada Telegram bot Python menggunakan aiogram 3.x + Supabase + Telethon.
+
+PENTING — BACA DULU SEBELUM BUAT APA-APA:
+- JANGAN buat website/frontend/API/dashboard
+- JANGAN start api-server/nodejs/pnpm workflow
+- JANGAN sentuh workflow configuration
+- Bot dijalankan dengan: cd bot && python main.py
+- Gunakan Python polling sahaja
+
+━━━━━━━━━━━━━━━━━━━━
+STRUKTUR PROJEK
+━━━━━━━━━━━━━━━━━━━━
+
+bot/
+├── handlers/
+│   ├── __init__.py
+│   ├── start.py
+│   ├── shop.py
+│   ├── topup.py
+│   ├── userbot.py
+│   ├── settings.py
+│   └── admin.py
+├── keyboards/
+│   ├── __init__.py
+│   ├── main_menu.py
+│   └── inline.py
+├── states/
+│   ├── __init__.py
+│   ├── topup_states.py
+│   └── userbot_states.py
+├── utils/
+│   ├── __init__.py
+│   └── helpers.py
+├── database.py
+└── main.py
+
+━━━━━━━━━━━━━━━━━━━━
+ENVIRONMENT VARIABLES
+━━━━━━━━━━━━━━━━━━━━
+
+BOT_TOKEN
+API_ID
+API_HASH
+ADMIN_ID
+SUPABASE_URL
+SUPABASE_KEY
+
+━━━━━━━━━━━━━━━━━━━━
+MAIN MENU — REPLY KEYBOARD
+━━━━━━━━━━━━━━━━━━━━
+
+Wajib guna Reply Keyboard (bukan inline keyboard) untuk main menu.
+
+Butang:
+🛒 Kedai
+⚠️ Bantuan
+🔑 Log Masuk Token
+📚 Buat Userbot
+⚙️ Tetapan
+
+━━━━━━━━━━━━━━━━━━━━
+TOPUP FLOW — BUAT BARU, BUANG SISTEM LAMA
+━━━━━━━━━━━━━━━━━━━━
+
+BUANG TERUS:
+- Semua kod /addcoin
+- Semua kod "hubungi admin"
+- Semua kod "Permintaan Topup Diterima"
+- Semua flow topup lama
+
+BUAT FLOW BARU:
+
+LANGKAH 1 — User tekan 💳 Topup Syiling dalam menu Kedai
+Bot papar inline keyboard pakej:
+
+- 300 Syiling — RM3
+- 600 Syiling — RM6
+- 900 Syiling — RM9
+- 1200 Syiling — RM12
+- 3000 Syiling — RM30
+
+LANGKAH 2 — User pilih pakej
+Bot papar ORDER SUMMARY dalam mesej:
+
+🧾 ORDER SUMMARY
+━━━━━━━━━━━━━━━━━━━━
+- Produk   : Topup Syiling
+- Pakej    : {coins} Syiling
+- Harga    : RM{amount}
+- Total    : RM{amount}
+
+Sila teruskan ke pembayaran.
+
+Inline button:
+[💳 Proceed to Payment]
+[❌ Cancel Order]
+
+LANGKAH 3 — User tekan Proceed to Payment
+- Generate order_id format: ORDxxxx (random 8 digit)
+- Save ke Supabase table topup_requests dengan status = pending
+- Bot hantar gambar QR (guna file_id atau path gambar QR)
+- Caption mesej:
+
+💳 PAYMENT DETAILS
+━━━━━━━━━━━━━━━━━━━━
+Order ID: {order_id}
+Amount: RM{amount}
+
+Scan QR code untuk bayar 👇
+
+Selepas bayar, tekan butang di bawah:
+
+Inline button:
+[✅ I Have Paid]
+[❌ Cancel Order]
+
+LANGKAH 4 — User tekan I Have Paid
+Bot balas:
+
+📎 Sila hantar screenshot resit pembayaran anda.
+
+FSM state tunggu user upload gambar.
+
+LANGKAH 5 — User upload screenshot resit
+- Save receipt_file_id ke Supabase
+- Update status = waiting_approval
+- Bot balas kepada user:
+
+✅ Resit diterima. Pesanan anda sedang disemak oleh admin.
+Order ID: {order_id}
+
+- Bot hantar notifikasi ke ADMIN_ID:
+
+🔔 TOPUP REQUEST BARU
+━━━━━━━━━━━━━━━━━━━━
+👤 Username : @{username}
+🆔 User ID  : {user_id}
+📋 Order ID : {order_id}
+💰 Amount   : RM{amount}
+🪙 Syiling  : {coins}
+
+Inline button:
+[✅ Approve]
+[❌ Reject]
+
+(Bot forward sekali gambar resit kepada admin)
+
+━━━━━━━━━━━━━━━━━━━━
+ADMIN FLOW
+━━━━━━━━━━━━━━━━━━━━
+
+APPROVE:
+- Tambah syiling ke table wallets (upsert)
+- Update topup_requests status = approved
+- Simpan approved_at dan approved_by
+- Notify user:
+
+✅ Topup Berjaya!
+━━━━━━━━━━━━━━━━━━━━
+🪙 {coins} Syiling telah dikreditkan ke wallet anda.
+Order ID: {order_id}
+Baki semasa: {baki} Syiling
+
+REJECT:
+- Update topup_requests status = rejected
+- Notify user:
+
+❌ Topup Ditolak
+━━━━━━━━━━━━━━━━━━━━
+Order ID: {order_id}
+Sila hubungi admin jika ada masalah.
+
+━━━━━━━━━━━━━━━━━━━━
+DATABASE SUPABASE
+━━━━━━━━━━━━━━━━━━━━
+
+Table: topup_requests
+Columns:
+- id (uuid, primary key)
+- order_id (text, unique)
+- user_id (bigint)
+- username (text)
+- coins (integer)
+- amount_rm (numeric)
+- receipt_file_id (text)
+- status (text) — nilai: pending / waiting_approval / approved / rejected
+- created_at (timestamp)
+- approved_at (timestamp)
+- approved_by (bigint)
+
+Table: wallets
+Columns:
+- user_id (bigint, primary key)
+- coins (integer, default 0)
+- updated_at (timestamp)
+
+Table: transactions
+Columns:
+- id (uuid)
+- user_id (bigint)
+- type (text)
+- amount (integer)
+- description (text)
+- created_at (timestamp)
+
+Table: sessions
+Columns:
+- id (uuid)
+- user_id (bigint)
+- userbot_id (text)
+- phone (text)
+- session_string (text)
+- status (text)
+- created_at (timestamp)
+
+━━━━━━━━━━━━━━━━━━━━
+FSM STATES YANG DIPERLUKAN
+━━━━━━━━━━━━━━━━━━━━
+
+TopupStates:
+- waiting_receipt (tunggu user upload resit)
+
+UserbotStates:
+- waiting_phone
+- waiting_otp
+- waiting_2fa
+- waiting_group
+- waiting_message
+- waiting_interval
+
+━━━━━━━━━━━━━━━━━━━━
+USERBOT FLOW
+━━━━━━━━━━━━━━━━━━━━
+
+1. User tekan 📚 Buat Userbot
+2. Semak wallet — perlu ada cukup syiling
+3. Tolak syiling untuk beli userbot
+4. Generate userbot_id format: UB-xxxxx
+5. OTP Flow:
+   - Minta nombor telefon (guna request_contact atau taip manual)
+   - Hantar OTP via Telethon
+   - Support 2FA password
+   - Save session string ke Supabase
+6. Pilih kumpulan Telegram
+7. Tetapkan mesej promote
+8. Tetapkan jarak masa (minit)
+9. Mula promote
+
+━━━━━━━━━━━━━━━━━━━━
+STYLE & UX
+━━━━━━━━━━━━━━━━━━━━
+
+- Semua teks Bahasa Melayu, kemas dan profesional
+- Emoji minimal dan kemas
+- Jangan spam mesej
+- Jangan duplicate keyboard
+- Semua callback_query mesti ada .answer()
+- Semua flow mesti ada butang ❌ Batal atau 🔙 Kembali
+- Jika Supabase error, bot jangan crash — handle exception
+
+━━━━━━━━━━━━━━━━━━━━
+BUGS YANG PERLU DIFIX
+━━━━━━━━━━━━━━━━━━━━
+
+1. Butang 🛒 Kedai dan 📚 Buat Userbot kadang-kadang tak reply
+   - Semak router registration dalam main.py
+   - Pastikan semua handler didaftarkan dengan betul
+   - Semua callback mesti ada .answer()
+   - Tambah fallback handler untuk unknown messages
+
+2. Main menu MESTI reply keyboard — bukan inline keyboard
+
+3. Jalankan bot dengan: cd bot && python main.py
+
+━━━━━━━━━━━━━━━━━━━━
+CARA JALANKAN
+━━━━━━━━━━━━━━━━━━━━
+
+Dalam .replit atau run command:
+run = "cd bot && python main.py"
+
+Jangan ada workflow lain selain Python bot.
