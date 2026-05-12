@@ -1,0 +1,89 @@
+Fix 3 bugs kritikal dalam topup flow:
+
+BUG 1 — DUPLICATE HANDLER
+Bila user tekan "Topup Syiling" berkali-kali,
+bot reply berkali-kali. 
+
+Fix:
+- Semua callback_query MESTI .answer() paling awal
+- Tambah throttling atau semak FSM state sebelum proses
+- Jika user dah dalam state topup, jangan buka baru
+
+BUG 2 — LOADING LAMA
+Bot lambat respond bila pilih pakej topup.
+
+Fix:
+- await callback.answer() MESTI baris pertama dalam handler
+- Semua Supabase/database call mesti async
+- Jangan ada time.sleep() atau blocking operation
+- Guna asyncio, bukan threading
+
+BUG 3 — ERROR BILA PROCEED TO PAYMENT
+Bila tekan Proceed to Payment, dapat error.
+
+Fix callback handler proceed_to_payment seperti ini:
+
+@router.callback_query(F.data.startswith("topup_proceed:"))
+async def proceed_payment(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()  # WAJIB BARIS PERTAMA
+    try:
+        data = await state.get_data()
+        coins = data.get("coins")
+        amount = data.get("amount")
+        user = callback.from_user
+        
+        import random
+        order_id = f"ORD{random.randint(10000000, 99999999)}"
+        
+        # Save ke database
+        try:
+            await db.create_topup_request(
+                order_id=order_id,
+                user_id=user.id,
+                username=user.username or str(user.id),
+                coins=coins,
+                amount_rm=amount
+            )
+        except Exception as db_error:
+            print(f"DB Error: {db_error}")
+            await callback.message.answer("⚠️ Ralat pangkalan data. Sila cuba lagi.")
+            return
+        
+        # Hantar QR
+        try:
+            from aiogram.types import FSInputFile
+            photo = FSInputFile("media/qr_payment.jpg")
+            await callback.message.answer_photo(
+                photo=photo,
+                caption=(
+                    "💳 PAYMENT DETAILS\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    f"Order ID: {order_id}\n"
+                    f"Amount: RM{amount:.2f}\n\n"
+                    "Scan QR code untuk bayar 👇\n\n"
+                    "Selepas bayar, tekan butang di bawah:"
+                ),
+                reply_markup=get_payment_keyboard(order_id)
+            )
+        except FileNotFoundError:
+            await callback.message.answer(
+                "💳 PAYMENT DETAILS\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                f"Order ID: {order_id}\n"
+                f"Amount: RM{amount:.2f}\n\n"
+                "Sila transfer ke nombor akaun admin.\n"
+                "Selepas bayar, tekan butang di bawah:",
+                reply_markup=get_payment_keyboard(order_id)
+            )
+        
+        await state.set_state(TopupStates.waiting_receipt)
+        
+    except Exception as e:
+        print(f"Error proceed_payment: {e}")
+        await callback.message.answer("⚠️ Ralat sistem. Sila cuba lagi.")
+
+PENTING:
+- Jangan ubah flow lain
+- Jangan buat website/API
+- Bot jalankan dengan: cd bot && python main.py
+- Tunjukkan fail yang diubah selepas fix

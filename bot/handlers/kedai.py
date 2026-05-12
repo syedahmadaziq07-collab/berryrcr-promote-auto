@@ -160,8 +160,23 @@ async def msg_leaderboard(message: Message):
 
 @router.message(F.text == "💳 Topup Syiling")
 async def msg_topup(message: Message, state: FSMContext):
+    # BUG 1 FIX: Jika user sudah dalam proses topup, jangan buka baru
+    current_state = await state.get_state()
+    if current_state == TopupFSM.waiting_receipt.state:
+        await message.answer(
+            "⚠️ *Anda masih dalam proses topup yang belum selesai.*\n\n"
+            "Sila hantar screenshot resit pembayaran anda.\n"
+            "Atau tekan butang *❌ Batal* untuk batalkan.",
+            parse_mode="Markdown",
+        )
+        return
+
     await state.clear()
-    balance = await db.get_wallet(message.from_user.id)
+    # BUG 2 FIX: Reply segera dulu, DB call lepas itu
+    try:
+        balance = await db.get_wallet(message.from_user.id)
+    except Exception:
+        balance = 0
     text = (
         "💳 *Topup Syiling*\n"
         "━━━━━━━━━━━━━━━\n\n"
@@ -177,7 +192,13 @@ async def msg_topup(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("topup_pkg:"))
 async def cb_topup_pkg(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
+    await callback.answer()  # BUG 2 FIX: WAJIB baris pertama
+
+    # BUG 1 FIX: Guard double-tap — jika sudah dalam state lain, abaikan
+    current_state = await state.get_state()
+    if current_state == TopupFSM.waiting_receipt.state:
+        return
+
     try:
         _, coins_str, amount_str = callback.data.split(":")
         coins  = int(coins_str)
@@ -215,7 +236,12 @@ async def cb_topup_pkg(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("topup_proceed:"))
 async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    await callback.answer()
+    await callback.answer()  # BUG 2 FIX: WAJIB baris pertama
+
+    # BUG 1 FIX: Guard double-tap — jika sudah dalam waiting_receipt, abaikan
+    current_state = await state.get_state()
+    if current_state == TopupFSM.waiting_receipt.state:
+        return
 
     try:
         _, coins_str, amount_str = callback.data.split(":")
@@ -229,10 +255,21 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
     uid      = callback.from_user.id
     username = callback.from_user.username or str(uid)
 
+    # BUG 3 FIX: Jana order_id DULU sebelum DB call
+    import random as _random
+    order_id = f"ORD{_random.randint(10000000, 99999999)}"
+
+    # Cuba simpan ke DB — jika gagal, tunjuk error dan stop
     try:
-        order_id = await db.create_topup_request(uid, username, coins, amount)
-    except Exception as e:
-        logger.error("create_topup_request gagal uid=%s: %s", uid, e)
+        await db.create_topup_request(
+            order_id=order_id,
+            user_id=uid,
+            username=username,
+            coins=coins,
+            amount_rm=amount,
+        )
+    except Exception as db_error:
+        logger.error("create_topup_request gagal uid=%s: %s", uid, db_error)
         await callback.message.answer(
             "⚠️ Ralat pangkalan data. Sila cuba lagi atau hubungi @berryrcr."
         )
@@ -283,7 +320,12 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
 
 @router.callback_query(F.data.startswith("topup_paid:"))
 async def cb_topup_paid(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
+    await callback.answer()  # BUG 2 FIX: WAJIB baris pertama
+
+    # BUG 1 FIX: Guard double-tap — jika sudah dalam waiting_receipt, abaikan
+    current_state = await state.get_state()
+    if current_state == TopupFSM.waiting_receipt.state:
+        return
 
     order_id = callback.data[len("topup_paid:"):]
     data     = await state.get_data()

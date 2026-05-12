@@ -580,17 +580,15 @@ async def create_topup_request(
     username: str,
     coins: int,
     amount_rm: float,
+    order_id: str = None,
 ) -> str:
-    """Simpan topup_request baru dengan status pending. Pulangkan order_id."""
+    """Simpan topup_request baru dengan status pending. Pulangkan order_id.
+    
+    BUG 3 FIX: Terima order_id dari luar supaya handler boleh jana
+    order_id DULU sebelum DB call — DB error tidak akan block user.
+    """
     client = await get_client()
-    order_id = _generate_order_id()
-    for _ in range(5):
-        try:
-            check = await client.table("topup_requests").select("order_id").eq("order_id", order_id).execute()
-            if not check.data:
-                break
-        except Exception:
-            break
+    if not order_id:
         order_id = _generate_order_id()
 
     await client.table("topup_requests").insert({
