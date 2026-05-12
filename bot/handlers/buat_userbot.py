@@ -317,13 +317,39 @@ async def _finalise_login(uid: int, client, phone: str, msg, state: FSMContext):
         await client.disconnect()
         _pending.pop(uid, None)
 
+        # ── Jana UB-ID ──
         userbot_id = _generate_userbot_id(uid)
+        logger.info("_finalise_login GENERATE uid=%s userbot_id=%s", uid, userbot_id)
 
+        # ── Step 1: Simpan session (termasuk userbot_id) ──
         await db.save_session(
             uid, phone, session_str,
             tg_username=tg_username,
             userbot_id=userbot_id,
         )
+        logger.info("_finalise_login SAVE SESSION uid=%s", uid)
+
+        # ── Step 2: Daftar dalam userbots table (WAJIB — backup lookup) ──
+        registered = await db.ensure_userbot_registered(uid, userbot_id)
+        if registered:
+            logger.info("_finalise_login REGISTER USERBOTS OK uid=%s userbot_id=%s", uid, userbot_id)
+        else:
+            logger.error("_finalise_login REGISTER USERBOTS GAGAL uid=%s userbot_id=%s", uid, userbot_id)
+
+        # ── Step 3: Verify — semak semula dari DB ──
+        saved = await db.get_session(uid)
+        if saved:
+            saved_ub = saved.get("userbot_id", "")
+            if saved_ub == userbot_id:
+                logger.info("_finalise_login VERIFY sessions.userbot_id OK: %s", saved_ub)
+            else:
+                logger.warning(
+                    "_finalise_login VERIFY MISMATCH — sessions.userbot_id='%s' expected='%s' "
+                    "(column mungkin belum wujud — userbots table digunakan sebagai backup)",
+                    saved_ub, userbot_id
+                )
+        else:
+            logger.error("_finalise_login VERIFY — session tidak dijumpai selepas save! uid=%s", uid)
 
         acc_display = f"@{tg_username}" if tg_username else f"`{_mask_phone(phone)}`"
 
@@ -332,7 +358,7 @@ async def _finalise_login(uid: int, client, phone: str, msg, state: FSMContext):
             f"🆔 ID Userbot:\n`{userbot_id}`\n\n"
             f"📱 Akaun:\n{acc_display}\n\n"
             "━━━━━━━━━━━━━━━\n"
-            "_Simpan ID Userbot ini untuk pindah akses jika akaun anda limit/banned._\n\n"
+            "⚠️ _Simpan ID Userbot ini! Gunakan untuk Log Masuk Token jika akaun anda kena limit/banned._\n\n"
             "Langkah seterusnya:\n"
             "• Aktifkan pelan PLUS/PRO\n"
             "• Guna ⚙️ Tetapan untuk konfigurasi mesej & jarak masa",

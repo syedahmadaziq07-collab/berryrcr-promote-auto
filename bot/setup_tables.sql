@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 );
 
 -- TABLE: sessions
+-- PENTING: Pastikan column userbot_id, tg_username, connected_at wujud!
 CREATE TABLE IF NOT EXISTS sessions (
     user_id        BIGINT PRIMARY KEY,
     phone_number   TEXT,
@@ -40,6 +41,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     connected_at   TIMESTAMPTZ,
     created_at     TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- MIGRATION: Tambah column ke sessions table jika belum ada
+-- (Selamat dijalankan walaupun column sudah wujud)
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS userbot_id   TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tg_username  TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS connected_at TIMESTAMPTZ;
 
 -- TABLE: selected_groups
 CREATE TABLE IF NOT EXISTS selected_groups (
@@ -88,7 +95,7 @@ CREATE TABLE IF NOT EXISTS daily_reports (
     created_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
--- TABLE: userbots
+-- TABLE: userbots (KRITIKAL — backup registry untuk Log Masuk Token)
 CREATE TABLE IF NOT EXISTS userbots (
     id         BIGSERIAL PRIMARY KEY,
     userbot_id TEXT UNIQUE NOT NULL,
@@ -97,7 +104,12 @@ CREATE TABLE IF NOT EXISTS userbots (
     is_active  BOOLEAN DEFAULT TRUE
 );
 
--- TABLE: topup_requests  ← TABLE BARU DIPERLUKAN
+-- INDEX untuk carian pantas userbots
+CREATE INDEX IF NOT EXISTS idx_userbots_owner_id   ON userbots(owner_id);
+CREATE INDEX IF NOT EXISTS idx_userbots_userbot_id ON userbots(userbot_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_userbot_id ON sessions(userbot_id);
+
+-- TABLE: topup_requests
 CREATE TABLE IF NOT EXISTS topup_requests (
     id               UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     order_id         TEXT UNIQUE NOT NULL,
@@ -113,10 +125,10 @@ CREATE TABLE IF NOT EXISTS topup_requests (
 );
 
 -- INDEX untuk carian pantas
-CREATE INDEX IF NOT EXISTS idx_topup_requests_user_id ON topup_requests(user_id);
-CREATE INDEX IF NOT EXISTS idx_topup_requests_status  ON topup_requests(status);
+CREATE INDEX IF NOT EXISTS idx_topup_requests_user_id  ON topup_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_topup_requests_status   ON topup_requests(status);
 CREATE INDEX IF NOT EXISTS idx_topup_requests_order_id ON topup_requests(order_id);
 
 -- ============================================================
--- SELESAI — Semua table berjaya dicipta
+-- SELESAI — Semua table dan column berjaya dicipta/dikemaskini
 -- ============================================================

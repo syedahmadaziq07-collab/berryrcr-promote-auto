@@ -265,10 +265,10 @@ async def save_session(
     """
     Simpan atau kemaskini session dalam Supabase.
 
-    Migration SQL diperlukan (jalankan dalam Supabase SQL Editor jika belum ada):
-        ALTER TABLE sessions ADD COLUMN IF NOT EXISTS userbot_id TEXT;
-        ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tg_username TEXT;
-        ALTER TABLE sessions ADD COLUMN IF NOT EXISTS connected_at TIMESTAMPTZ;
+    Jika sessions.userbot_id column belum wujud, jalankan dalam Supabase SQL Editor:
+        ALTER TABLE sessions ADD COLUMN IF NOT EXISTS userbot_id    TEXT;
+        ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tg_username   TEXT;
+        ALTER TABLE sessions ADD COLUMN IF NOT EXISTS connected_at  TIMESTAMPTZ;
     """
     from datetime import datetime, timezone
     client = await get_client()
@@ -282,12 +282,60 @@ async def save_session(
     }
     try:
         await client.table("sessions").upsert(payload, on_conflict="user_id").execute()
-    except Exception:
-        # Fallback: simpan tanpa kolum optional jika belum wujud
-        await client.table("sessions").upsert(
-            {"user_id": user_id, "phone_number": phone, "session_string": session_string},
-            on_conflict="user_id",
-        ).execute()
+        logger.info("save_session OK uid=%s userbot_id=%s", user_id, userbot_id or "kosong")
+    except Exception as e:
+        # Column optional (userbot_id/tg_username/connected_at) mungkin belum wujud
+        logger.error(
+            "save_session PENUH gagal uid=%s: %s\n"
+            "  ⚠️  KRITIS: sessions.userbot_id TIDAK DISIMPAN!\n"
+            "  Jalankan migration SQL dalam Supabase:\n"
+            "    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS userbot_id   TEXT;\n"
+            "    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tg_username  TEXT;\n"
+            "    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS connected_at TIMESTAMPTZ;\n"
+            "  Fallback: menyimpan session tanpa userbot_id...",
+            user_id, e,
+        )
+        try:
+            await client.table("sessions").upsert(
+                {"user_id": user_id, "phone_number": phone, "session_string": session_string},
+                on_conflict="user_id",
+            ).execute()
+            logger.warning("save_session FALLBACK OK uid=%s — USERBOT_ID HILANG dari sessions", user_id)
+        except Exception as e2:
+            logger.error("save_session FALLBACK juga gagal uid=%s: %s", user_id, e2)
+            raise
+
+
+async def ensure_userbot_registered(user_id: int, userbot_id: str) -> bool:
+    """
+    Pastikan userbot_id disimpan dalam userbots table.
+    Ini adalah penyimpanan BACKUP supaya Log Masuk Token berfungsi
+    walaupun sessions.userbot_id column gagal disimpan.
+    Returns True jika berjaya.
+    """
+    client = await get_client()
+    try:
+        existing = await client.table("userbots").select("id, userbot_id").eq("owner_id", user_id).execute()
+        if existing.data:
+            current_ub_id = existing.data[0].get("userbot_id", "")
+            if current_ub_id != userbot_id:
+                await client.table("userbots").update(
+                    {"userbot_id": userbot_id, "is_active": True}
+                ).eq("owner_id", user_id).execute()
+                logger.info("ensure_userbot_registered UPDATE uid=%s ub_id=%s (ganti: %s)", user_id, userbot_id, current_ub_id)
+            else:
+                logger.info("ensure_userbot_registered SUDAH ADA uid=%s ub_id=%s", user_id, userbot_id)
+        else:
+            await client.table("userbots").insert({
+                "userbot_id": userbot_id,
+                "owner_id": user_id,
+                "is_active": True,
+            }).execute()
+            logger.info("ensure_userbot_registered INSERT uid=%s ub_id=%s", user_id, userbot_id)
+        return True
+    except Exception as e:
+        logger.error("ensure_userbot_registered GAGAL uid=%s ub_id=%s: %s", user_id, userbot_id, e)
+        return False
 
 
 async def delete_session(user_id: int):
@@ -296,14 +344,46 @@ async def delete_session(user_id: int):
 
 
 async def get_session_by_userbot_id(userbot_id: str):
-    """Cari session berdasarkan userbot_id."""
+    """
+    Cari session berdasarkan userbot_id — dual-lookup:
+      Kaedah 1: sessions.userbot_id (jika column wujud)
+      Kaedah 2: userbots.owner_id → sessions (backup jika sessions column kosong)
+    """
     client = await get_client()
+
+    # ── Kaedah 1: sessions.userbot_id ──
     try:
         res = await client.table("sessions").select("*").eq("userbot_id", userbot_id).execute()
-        return res.data[0] if res.data else None
+        if res.data:
+            logger.info("get_session_by_userbot_id FOUND (kaedah 1 — sessions): ub_id=%s uid=%s",
+                        userbot_id, res.data[0].get("user_id"))
+            return res.data[0]
+        logger.info("get_session_by_userbot_id kaedah 1 — tiada result untuk ub_id=%s", userbot_id)
     except Exception as e:
-        logger.warning("get_session_by_userbot_id error: %s", e)
-        return None
+        logger.warning("get_session_by_userbot_id kaedah 1 gagal (column mungkin belum wujud): %s", e)
+
+    # ── Kaedah 2: userbots registry → sessions ──
+    try:
+        ub_res = await client.table("userbots").select("owner_id").eq("userbot_id", userbot_id).execute()
+        if ub_res.data:
+            owner_id = ub_res.data[0]["owner_id"]
+            logger.info("get_session_by_userbot_id kaedah 2 — userbots registry: ub_id=%s → uid=%s",
+                        userbot_id, owner_id)
+            session = await get_session(owner_id)
+            if session:
+                # Patch userbot_id ke dalam dict jika column sessions tidak simpan ia
+                if not session.get("userbot_id"):
+                    session["userbot_id"] = userbot_id
+                    logger.info("get_session_by_userbot_id PATCH userbot_id ke session uid=%s", owner_id)
+                return session
+            logger.warning("get_session_by_userbot_id kaedah 2 — userbots ada tapi session tiada uid=%s", owner_id)
+        else:
+            logger.warning("get_session_by_userbot_id kaedah 2 — userbots tiada ub_id=%s", userbot_id)
+    except Exception as e:
+        logger.warning("get_session_by_userbot_id kaedah 2 gagal: %s", e)
+
+    logger.error("get_session_by_userbot_id TIDAK DIJUMPAI: ub_id=%s — semua kaedah gagal", userbot_id)
+    return None
 
 
 async def transfer_userbot_session(from_user_id: int, to_user_id: int):

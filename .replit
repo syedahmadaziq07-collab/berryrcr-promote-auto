@@ -57,6 +57,5 @@ packages = ["cargo", "libiconv", "openssl", "rustc"]
 ADMIN_ID = "5363369071"
 API_HASH = "96412da2f1643c3d0ee8ef9ae9f01ed2"
 API_ID = "36629799"
-BOT_TOKEN = "8370546349:AAEYMwAujjJWtCApGxejtL24NsH2fiqJHA0"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltbG9mZHF0bXNmZnRudXNrZ2JxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODU1ODQyMCwiZXhwIjoyMDk0MTM0NDIwfQ.70DENOcMCO2hd8sJ5E9ZhzKplsaOy6k2jqGsvPv62vI"
 SUPABASE_URL = "https://ymlofdqtmsfftnuskgbq.supabase.co"
