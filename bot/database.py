@@ -80,21 +80,27 @@ async def get_wallet(user_id: int) -> int:
 
 
 async def add_coins(user_id: int, amount: int, description: str = "Tambah syiling"):
+    """Tambah syiling ke wallet. Transaction log adalah OPTIONAL — wallet update sentiasa berjaya."""
     client = await get_client()
     balance = await get_wallet(user_id)
     await client.table("wallets").upsert(
         {"user_id": user_id, "coins": balance + amount},
         on_conflict="user_id",
     ).execute()
-    await client.table("transactions").insert({
-        "user_id": user_id,
-        "type": "credit",
-        "amount": amount,
-        "description": description,
-    }).execute()
+    # Optional — gagal jika column 'amount' tidak wujud dalam transactions table
+    try:
+        await client.table("transactions").insert({
+            "user_id": user_id,
+            "type": "credit",
+            "amount": amount,
+            "description": description,
+        }).execute()
+    except Exception as e:
+        logger.warning("transactions log skip uid=%s (schema mungkin tidak lengkap): %s", user_id, e)
 
 
 async def deduct_coins(user_id: int, amount: int, description: str = "Tolak syiling") -> bool:
+    """Tolak syiling dari wallet. Transaction log adalah OPTIONAL."""
     client = await get_client()
     balance = await get_wallet(user_id)
     if balance < amount:
@@ -102,16 +108,20 @@ async def deduct_coins(user_id: int, amount: int, description: str = "Tolak syil
     await client.table("wallets").update(
         {"coins": balance - amount}
     ).eq("user_id", user_id).execute()
-    await client.table("transactions").insert({
-        "user_id": user_id,
-        "type": "debit",
-        "amount": amount,
-        "description": description,
-    }).execute()
+    try:
+        await client.table("transactions").insert({
+            "user_id": user_id,
+            "type": "debit",
+            "amount": amount,
+            "description": description,
+        }).execute()
+    except Exception as e:
+        logger.warning("transactions log skip uid=%s (schema mungkin tidak lengkap): %s", user_id, e)
     return True
 
 
 async def transfer_coins(from_id: int, to_id: int, amount: int, description: str = "Pindah syiling") -> bool:
+    """Pindah syiling antara dua wallet. Transaction log adalah OPTIONAL."""
     client = await get_client()
     from_balance = await get_wallet(from_id)
     if from_balance < amount:
@@ -121,14 +131,17 @@ async def transfer_coins(from_id: int, to_id: int, amount: int, description: str
     await client.table("wallets").upsert(
         {"user_id": to_id, "coins": to_balance + amount}, on_conflict="user_id"
     ).execute()
-    await client.table("transactions").insert({
-        "user_id": from_id, "type": "debit", "amount": amount,
-        "description": f"Hantar ke {to_id} — {description}",
-    }).execute()
-    await client.table("transactions").insert({
-        "user_id": to_id, "type": "credit", "amount": amount,
-        "description": f"Terima dari {from_id} — {description}",
-    }).execute()
+    try:
+        await client.table("transactions").insert({
+            "user_id": from_id, "type": "debit", "amount": amount,
+            "description": f"Hantar ke {to_id} — {description}",
+        }).execute()
+        await client.table("transactions").insert({
+            "user_id": to_id, "type": "credit", "amount": amount,
+            "description": f"Terima dari {from_id} — {description}",
+        }).execute()
+    except Exception as e:
+        logger.warning("transactions log skip transfer (schema mungkin tidak lengkap): %s", e)
     return True
 
 

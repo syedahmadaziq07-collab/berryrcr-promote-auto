@@ -394,6 +394,8 @@ async def cb_activate_plan(callback: CallbackQuery):
         )
         return
 
+    # Jawab SEBELUM edit_text
+    await callback.answer()
     text = (
         f"📋 *Sahkan Aktivasi Pelan*\n\n"
         f"Pelan: *{plan['name']}*\n"
@@ -406,7 +408,6 @@ async def cb_activate_plan(callback: CallbackQuery):
         text, parse_mode="Markdown",
         reply_markup=plan_confirm_kb(plan_key),
     )
-    await callback.answer()
 
 
 @router.callback_query(F.data.in_({"confirm_activate_plus", "confirm_activate_pro"}))
@@ -415,9 +416,15 @@ async def cb_confirm_activate(callback: CallbackQuery):
     plan = COIN_PLANS[plan_key]
     uid = callback.from_user.id
 
+    # Jawab SEBELUM deduct_coins (DB call berat)
+    await callback.answer("⏳ Memproses...")
     ok = await db.deduct_coins(uid, plan["coins"], f"Aktif pelan {plan['name']}")
     if not ok:
-        await callback.answer("⚠️ Baki tidak mencukupi!", show_alert=True)
+        await callback.message.edit_text(
+            "⚠️ *Baki tidak mencukupi!*\n\nSila topup syiling dahulu.",
+            parse_mode="Markdown",
+            reply_markup=back_to_menu_kb(),
+        )
         return
 
     await db.create_subscription(uid, plan_key)
@@ -427,7 +434,6 @@ async def cb_confirm_activate(callback: CallbackQuery):
         parse_mode="Markdown",
         reply_markup=back_to_menu_kb(),
     )
-    await callback.answer(f"✅ Pelan {plan['name']} diaktifkan!")
 
 
 # ─────────────────────────────────────────────

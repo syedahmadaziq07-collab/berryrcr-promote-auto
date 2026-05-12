@@ -42,9 +42,10 @@ async def msg_buy_userbot(message: Message):
 
 @router.callback_query(F.data == "buy_userbot")
 async def cb_buy_userbot(callback: CallbackQuery):
+    # Jawab PERTAMA — ada DB call selepas ini
+    await callback.answer()
     text = await _buy_userbot_text(callback.from_user.id)
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=userbot_plans_kb())
-    await callback.answer()
 
 
 @router.callback_query(F.data.in_({"buy_plus", "buy_pro"}))
@@ -61,6 +62,8 @@ async def cb_confirm_plan(callback: CallbackQuery):
         )
         return
 
+    # Jawab SEBELUM edit_text
+    await callback.answer()
     text = (
         f"🛒 *Sahkan Pembelian*\n\n"
         f"Pelan: *{plan['name']}*\n"
@@ -72,7 +75,6 @@ async def cb_confirm_plan(callback: CallbackQuery):
     await callback.message.edit_text(
         text, parse_mode="Markdown", reply_markup=confirm_kb(f"confirm_buy_{plan_key.lower()}")
     )
-    await callback.answer()
 
 
 @router.callback_query(F.data.in_({"confirm_buy_plus", "confirm_buy_pro"}))
@@ -81,9 +83,15 @@ async def cb_process_buy(callback: CallbackQuery):
     plan = COIN_PLANS[plan_key]
     uid = callback.from_user.id
 
+    # Jawab SEBELUM deduct_coins (DB call)
+    await callback.answer("⏳ Memproses pembelian...")
     success = await db.deduct_coins(uid, plan["coins"], f"Beli pelan {plan['name']}")
     if not success:
-        await callback.answer("⚠️ Baki tidak mencukupi!", show_alert=True)
+        await callback.message.edit_text(
+            "⚠️ *Baki tidak mencukupi!*\n\nSila topup syiling dahulu.",
+            parse_mode="Markdown",
+            reply_markup=back_to_menu_kb(),
+        )
         return
 
     await db.create_subscription(uid, plan_key)
@@ -94,4 +102,3 @@ async def cb_process_buy(callback: CallbackQuery):
         f"Langkah seterusnya: tekan 📱 *Sambung Akaun*"
     )
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=back_to_menu_kb())
-    await callback.answer("✅ Pelan berjaya diaktifkan!")

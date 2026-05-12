@@ -74,6 +74,7 @@ async def msg_tetapan(message: Message, state: FSMContext):
 async def cb_select_groups(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
 
+    # Validasi pantas — jawab dengan show_alert jika gagal
     session = await db.get_session(uid)
     if not session:
         await callback.answer(
@@ -90,6 +91,8 @@ async def cb_select_groups(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    # Jawab callback SEBELUM operasi berat (fetch dari Telegram)
+    await callback.answer()
     msg = await callback.message.edit_text("⏳ Memuat senarai kumpulan anda...")
     try:
         groups = await fetch_user_groups(session["session_string"])
@@ -124,11 +127,10 @@ async def cb_select_groups(callback: CallbackQuery, state: FSMContext):
             reply_markup=back_to_menu_kb(),
         )
 
-    await callback.answer()
-
 
 @router.callback_query(F.data.startswith("toggle_group_"))
 async def cb_toggle_group(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()  # Jawab terus — tiada DB berat
     uid      = callback.from_user.id
     group_id = int(callback.data.replace("toggle_group_", ""))
     groups   = _temp_groups.get(uid, [])
@@ -143,7 +145,6 @@ async def cb_toggle_group(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(
         reply_markup=groups_selection_kb(groups, selected)
     )
-    await callback.answer()
 
 
 @router.callback_query(F.data == "save_groups")
@@ -159,6 +160,8 @@ async def cb_save_groups(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    # Jawab callback SEBELUM simpan ke DB
+    await callback.answer("✅ Menyimpan kumpulan...")
     selected_groups = [g for g in groups if g["id"] in selected]
     await db.save_selected_groups(uid, selected_groups)
     _temp_groups.pop(uid, None)
@@ -171,7 +174,6 @@ async def cb_save_groups(callback: CallbackQuery, state: FSMContext):
         parse_mode="Markdown",
         reply_markup=back_to_menu_kb(),
     )
-    await callback.answer("✅ Kumpulan disimpan!")
 
 
 # ─────────────────────────────────────────────
@@ -189,6 +191,8 @@ async def cb_set_message(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    # Jawab SEBELUM DB call seterusnya
+    await callback.answer()
     settings = await db.get_promo_settings(uid)
     current  = settings.get("message_text") if settings else None
     preview  = f"```\n{current}\n```" if current else "_Tiada mesej ditetapkan_"
@@ -201,7 +205,6 @@ async def cb_set_message(callback: CallbackQuery, state: FSMContext):
         reply_markup=cancel_kb(),
     )
     await state.set_state(SettingsFSM.waiting_message)
-    await callback.answer()
 
 
 @router.message(SettingsFSM.waiting_message)
@@ -242,6 +245,8 @@ async def cb_set_delay(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    # Jawab SEBELUM DB call seterusnya
+    await callback.answer()
     settings          = await db.get_promo_settings(uid)
     current_delay     = settings["delay_minutes"] if settings else MIN_DELAY_MINUTES
 
@@ -255,7 +260,6 @@ async def cb_set_delay(callback: CallbackQuery, state: FSMContext):
         reply_markup=cancel_kb(),
     )
     await state.set_state(SettingsFSM.waiting_delay)
-    await callback.answer()
 
 
 @router.message(SettingsFSM.waiting_delay)
@@ -336,6 +340,8 @@ async def cb_start_promote(callback: CallbackQuery):
         await callback.answer("ℹ️ Promote sudah berjalan!", show_alert=True)
         return
 
+    # Jawab SEBELUM operasi DB + scheduler
+    await callback.answer("🚀 Memulakan promote...")
     await db.set_promo_running(uid, True)
     scheduler_service.start_promo_job(uid, delay_minutes=settings["delay_minutes"])
 
@@ -356,7 +362,6 @@ async def cb_start_promote(callback: CallbackQuery):
         parse_mode="Markdown",
         reply_markup=back_to_menu_kb(),
     )
-    await callback.answer("🚀 Promote dimulakan!")
 
 
 # ─────────────────────────────────────────────
@@ -372,6 +377,8 @@ async def cb_stop_promote(callback: CallbackQuery):
         await callback.answer("ℹ️ Promote tidak sedang berjalan.", show_alert=True)
         return
 
+    # Jawab SEBELUM DB + scheduler
+    await callback.answer("⏹️ Menghentikan promote...")
     await db.set_promo_running(uid, False)
     scheduler_service.stop_promo_job(uid)
 
@@ -382,7 +389,6 @@ async def cb_stop_promote(callback: CallbackQuery):
         parse_mode="Markdown",
         reply_markup=back_to_menu_kb(),
     )
-    await callback.answer("⏹️ Promote dihentikan!")
 
 
 # ─────────────────────────────────────────────
@@ -391,6 +397,8 @@ async def cb_stop_promote(callback: CallbackQuery):
 
 @router.callback_query(F.data == "status")
 async def cb_status(callback: CallbackQuery):
+    # Jawab PERTAMA — status ada 5 DB calls
+    await callback.answer()
     uid = callback.from_user.id
 
     sub      = await db.get_active_subscription(uid)
@@ -443,4 +451,3 @@ async def cb_status(callback: CallbackQuery):
     await callback.message.edit_text(
         text, parse_mode="Markdown", reply_markup=back_to_menu_kb()
     )
-    await callback.answer()

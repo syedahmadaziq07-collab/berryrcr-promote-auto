@@ -1,0 +1,96 @@
+Fix admin ✅ Approve topup dan optimize semua response button supaya cepat.
+
+JANGAN buat web/dashboard/API server. Telegram bot Python aiogram sahaja.
+
+LOG ERROR NORTHFLANK:
+1. Bot sudah running:
+Bot aktif: @berryrcr_bot — polling bermula
+
+2. Error semasa admin tekan Approve:
+handlers.admin: approve add_coins gagal uid=5363369071:
+Could not find the 'amount' column of 'transactions' in the schema cache
+code: PGRST204
+
+3. Error semasa create topup request:
+handlers.kedai: create_topup_request gagal:
+Could not find the 'order_id' column of 'topup_requests' in the schema cache
+code: PGRST204
+
+4. Ada warning polling conflict:
+Conflict #1 / #21 — retry dalam 0.1s
+
+TUGAS UTAMA:
+
+A. FIX APPROVE TOPUP
+- Dalam approve handler, callback.answer() mesti baris pertama.
+- Jangan biar button loading lama.
+- add_coins sekarang berjaya update wallets, tetapi gagal bila insert transactions sebab column transactions.amount tidak wujud.
+- Audit schema transactions sebenar.
+- Jangan insert column "amount" kalau column itu tidak wujud.
+- Gunakan column yang memang wujud sahaja.
+- Kalau transactions schema tidak lengkap, jadikan transaction logging optional.
+- Approval mesti tetap berjaya walaupun insert transactions gagal.
+- Flow approve wajib:
+  1. callback.answer("Memproses approval...")
+  2. update wallets.coins
+  3. cuba insert transaction optional
+  4. notify user
+  5. edit mesej admin jadi approved
+
+B. FIX TOPUP_REQUESTS
+- topup_requests table wujud tapi schema tidak lengkap / schema cache tidak ada order_id.
+- Jangan biarkan flow gagal.
+- create_topup_request optional sahaja.
+- Kalau insert topup_requests gagal, log warning dan teruskan flow payment.
+- Jika boleh, generate SQL migration lengkap untuk topup_requests:
+  order_id
+  user_id
+  username
+  coins
+  amount_rm
+  receipt_file_id
+  status
+  created_at
+  approved_at
+  approved_by
+
+C. SPEED OPTIMIZATION
+Pastikan semua callback button cepat respond:
+- Proceed to Payment
+- I Have Paid
+- Cancel Order
+- Approve
+- Reject
+- Topup package buttons
+- Beli Userbot
+- Kedai
+- Buat Userbot
+
+Untuk setiap callback_query handler:
+- await callback.answer() mesti dibuat seawal mungkin
+- proses DB berat selepas answer
+- semua DB operation dibalut try/except
+- jika DB gagal, jangan crash bot
+- user/admin mesti tetap dapat response mesra
+
+D. FIX POLLING CONFLICT
+Log ada:
+Conflict #1 / #21 — retry dalam 0.1s
+
+Pastikan cuma satu bot instance polling:
+- Jangan start bot dua kali
+- Jangan ada webhook aktif jika pakai polling
+- Pada startup, call delete_webhook(drop_pending_updates=True) sebelum start polling
+- Pastikan main.py tidak duplicate dispatcher/start_polling
+
+E. OUTPUT
+Beritahu:
+- file mana diubah
+- punca error sebenar
+- apa yang dibuat supaya approve cepat
+- SQL apa yang perlu saya run di Supabase jika perlu
+
+Selepas fix:
+- restart bot
+- test approve button supaya tidak loading lama
+- test wallet coins bertambah
