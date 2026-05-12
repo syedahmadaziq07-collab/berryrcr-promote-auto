@@ -177,12 +177,14 @@ async def msg_topup(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("topup_pkg:"))
 async def cb_topup_pkg(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     try:
         _, coins_str, amount_str = callback.data.split(":")
         coins  = int(coins_str)
         amount = float(amount_str)
-    except Exception:
-        await callback.answer("⚠️ Ralat. Sila cuba lagi.", show_alert=True)
+    except Exception as e:
+        logger.error("topup_pkg parse error: %s", e)
+        await callback.message.answer("⚠️ Ralat. Sila cuba lagi.")
         return
 
     await state.update_data(coins=coins, amount=amount)
@@ -196,11 +198,15 @@ async def cb_topup_pkg(callback: CallbackQuery, state: FSMContext):
         f"- Total    : RM{amount:.2f}\n\n"
         "Sila teruskan ke pembayaran."
     )
-    await callback.message.edit_text(
-        text, parse_mode="Markdown",
-        reply_markup=topup_order_summary_kb(coins, amount),
-    )
-    await callback.answer()
+    try:
+        await callback.message.edit_text(
+            text, parse_mode="Markdown",
+            reply_markup=topup_order_summary_kb(coins, amount),
+        )
+    except Exception as e:
+        logger.error("topup_pkg edit_text error: %s", e)
+        await callback.message.answer(text, parse_mode="Markdown",
+                                      reply_markup=topup_order_summary_kb(coins, amount))
 
 
 # ─────────────────────────────────────────────
@@ -209,12 +215,15 @@ async def cb_topup_pkg(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("topup_proceed:"))
 async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await callback.answer()
+
     try:
         _, coins_str, amount_str = callback.data.split(":")
         coins  = int(coins_str)
         amount = float(amount_str)
-    except Exception:
-        await callback.answer("⚠️ Ralat. Sila cuba lagi.", show_alert=True)
+    except Exception as e:
+        logger.error("topup_proceed parse error: %s", e)
+        await callback.message.answer("⚠️ Ralat data. Sila pilih pakej semula.")
         return
 
     uid      = callback.from_user.id
@@ -224,7 +233,9 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
         order_id = await db.create_topup_request(uid, username, coins, amount)
     except Exception as e:
         logger.error("create_topup_request gagal uid=%s: %s", uid, e)
-        await callback.answer("⚠️ Ralat sistem. Sila cuba lagi.", show_alert=True)
+        await callback.message.answer(
+            "⚠️ Ralat pangkalan data. Sila cuba lagi atau hubungi @berryrcr."
+        )
         return
 
     await state.update_data(order_id=order_id, coins=coins, amount=amount)
@@ -243,20 +254,27 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
     except Exception:
         pass
 
-    if os.path.exists(QR_PATH):
-        qr_file = FSInputFile(QR_PATH)
-        await bot.send_photo(
-            uid, qr_file, caption=caption,
-            parse_mode="Markdown",
-            reply_markup=topup_payment_kb(order_id),
-        )
-    else:
+    try:
+        if os.path.exists(QR_PATH):
+            qr_file = FSInputFile(QR_PATH)
+            await bot.send_photo(
+                uid, qr_file, caption=caption,
+                parse_mode="Markdown",
+                reply_markup=topup_payment_kb(order_id),
+            )
+        else:
+            await bot.send_message(
+                uid, caption,
+                parse_mode="Markdown",
+                reply_markup=topup_payment_kb(order_id),
+            )
+    except Exception as e:
+        logger.error("topup_proceed send msg error uid=%s: %s", uid, e)
         await bot.send_message(
-            uid, caption,
+            uid,
+            f"⚠️ Gagal hantar QR. Sila hubungi @berryrcr.\n\nOrder ID anda: `{order_id}`",
             parse_mode="Markdown",
-            reply_markup=topup_payment_kb(order_id),
         )
-    await callback.answer()
 
 
 # ─────────────────────────────────────────────
@@ -265,8 +283,10 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
 
 @router.callback_query(F.data.startswith("topup_paid:"))
 async def cb_topup_paid(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
     order_id = callback.data[len("topup_paid:"):]
-    data = await state.get_data()
+    data     = await state.get_data()
     if not data.get("order_id"):
         await state.update_data(order_id=order_id)
 
@@ -278,9 +298,10 @@ async def cb_topup_paid(callback: CallbackQuery, state: FSMContext):
             reply_markup=None,
         )
     except Exception:
-        await callback.message.answer("📎 Sila hantar screenshot resit pembayaran anda.")
-
-    await callback.answer()
+        try:
+            await callback.message.answer("📎 Sila hantar screenshot resit pembayaran anda.")
+        except Exception as e:
+            logger.error("topup_paid answer error: %s", e)
 
 
 # ─────────────────────────────────────────────
@@ -354,15 +375,19 @@ async def process_topup_receipt_invalid(message: Message):
 
 @router.callback_query(F.data == "topup_cancel")
 async def cb_topup_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer("❌ Dibatalkan.")
     await state.clear()
     try:
         await callback.message.delete()
     except Exception:
         pass
     uid  = callback.from_user.id
-    text = await _kedai_text(uid)
-    await callback.message.answer(text, parse_mode="Markdown", reply_markup=kedai_menu_kb())
-    await callback.answer("❌ Dibatalkan.")
+    try:
+        text = await _kedai_text(uid)
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=kedai_menu_kb())
+    except Exception as e:
+        logger.error("topup_cancel kedai_text error uid=%s: %s", uid, e)
+        await callback.message.answer("🛒 Kembali ke Kedai.", reply_markup=kedai_menu_kb())
 
 
 # ─────────────────────────────────────────────

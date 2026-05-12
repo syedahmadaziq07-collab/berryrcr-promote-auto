@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 
 from aiogram import Bot, Dispatcher
@@ -64,6 +65,27 @@ async def aggressive_poll(bot: Bot, dp: Dispatcher):
             await asyncio.sleep(2)
 
 
+async def check_tables():
+    """Semak sama ada table topup_requests wujud. Jika tidak, cetak SQL setup."""
+    try:
+        client = await get_client()
+        await client.table("topup_requests").select("order_id").limit(1).execute()
+        logger.info("Table topup_requests — OK")
+    except Exception as e:
+        msg = str(e)
+        if "PGRST204" in msg or "does not exist" in msg.lower() or "column" in msg.lower():
+            logger.error("=" * 60)
+            logger.error("TABLE topup_requests BELUM WUJUD DI SUPABASE!")
+            logger.error("Sila jalankan SQL berikut dalam Supabase SQL Editor:")
+            logger.error("https://supabase.com/dashboard/project/ymlofdqtmsfftnuskgbq/sql")
+            logger.error("")
+            sql_path = os.path.join(os.path.dirname(__file__), "setup_tables.sql")
+            if os.path.exists(sql_path):
+                with open(sql_path) as f:
+                    logger.error(f.read())
+            logger.error("=" * 60)
+
+
 async def main():
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN tidak ditetapkan!")
@@ -72,6 +94,8 @@ async def main():
     logger.info("Menyambung ke Supabase...")
     await get_client()
     logger.info("Supabase bersedia.")
+
+    await check_tables()
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())

@@ -1,0 +1,58 @@
+Fix urgent bugs dalam Telegram bot saya.
+
+MASALAH 1 — ERROR "Ralat sistem. Sila cuba lagi"
+Bila user tekan button "Proceed to Payment" dalam topup flow,
+bot papar error "Ralat sistem. Sila cuba lagi" dan loading lama.
+
+Punca yang perlu disemak dan difix:
+1. Callback handler proceed_to_payment — pastikan ada try/except
+2. Callback mesti .answer() DULU sebelum buat apa-apa proses
+3. Semak Supabase insert ke table topup_requests — handle exception
+4. Semak QR image — jika file_id kosong atau path salah, bot akan crash
+5. Semua await mesti betul — jangan ada blocking call tanpa async
+
+MASALAH 2 — LOADING LAMA
+1. Pastikan semua callback_query handler buat .answer() paling awal sekali
+2. Semua database call mesti guna async/await
+3. Jangan ada synchronous blocking operation dalam handler
+
+CARA FIX:
+
+Dalam setiap callback handler, struktur mesti macam ni:
+
+@router.callback_query(F.data == "proceed_to_payment")
+async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()  # WAJIB PALING AWAL
+    try:
+        # ambil data dari state
+        data = await state.get_data()
+        coins = data.get("coins")
+        amount = data.get("amount")
+        
+        # generate order_id
+        import random
+        order_id = f"ORD{random.randint(10000000, 99999999)}"
+        
+        # save ke supabase dengan try/except
+        try:
+            await db.create_topup_request(...)
+        except Exception as e:
+            print(f"Supabase error: {e}")
+            await callback.message.answer("⚠️ Ralat pangkalan data. Sila cuba lagi.")
+            return
+        
+        # hantar QR image
+        # jika guna file_id, pastikan file_id betul
+        # jika guna path, pastikan fail wujud
+        
+    except Exception as e:
+        print(f"Error proceed_to_payment: {e}")
+        await callback.message.answer("⚠️ Ralat sistem. Sila cuba lagi.")
+
+PENTING:
+- Jangan ubah flow lain yang dah berfungsi
+- Jangan buat website/frontend/API
+- Jangan start workflow baru
+- Bot dijalankan dengan: cd bot && python main.py
+- Semua teks Bahasa Melayu
+- Selepas fix, tunjukkan fail yang telah diubah
