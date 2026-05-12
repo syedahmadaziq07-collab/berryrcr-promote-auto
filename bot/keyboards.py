@@ -111,11 +111,23 @@ def topup_payment_kb(order_id: str) -> InlineKeyboardMarkup:
     ])
 
 
-def topup_request_admin_kb(order_id: str) -> InlineKeyboardMarkup:
+def topup_request_admin_kb(
+    order_id: str,
+    user_id: int,
+    coins: int,
+    amount_rm: float,
+) -> InlineKeyboardMarkup:
+    """
+    Encode user_id, coins, amount_rm dalam callback_data supaya admin boleh
+    approve/reject TANPA bergantung pada table topup_requests di DB.
+    Format: tr_approve:{user_id}:{coins}:{amount_rm:.2f}:{order_id}
+    """
+    approve_data = f"tr_approve:{user_id}:{coins}:{amount_rm:.2f}:{order_id}"
+    reject_data  = f"tr_reject:{user_id}:{order_id}"
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ Approve", callback_data=f"tr_approve:{order_id}"),
-            InlineKeyboardButton(text="❌ Reject",  callback_data=f"tr_reject:{order_id}"),
+            InlineKeyboardButton(text="✅ Approve", callback_data=approve_data),
+            InlineKeyboardButton(text="❌ Reject",  callback_data=reject_data),
         ]
     ])
 

@@ -456,44 +456,140 @@ async def _do_reject_request(order_id: str, admin_id: int, bot: Bot) -> tuple[bo
 
 # ──────────────────────────────────────────────────────────────
 # INLINE CALLBACK — ✅ Approve / ❌ Reject (dari butang pada resit)
+# Format callback_data:
+#   tr_approve:{user_id}:{coins}:{amount_rm}:{order_id}
+#   tr_reject:{user_id}:{order_id}
 # ──────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("tr_approve:"))
 async def cb_approve_topup_request(callback: CallbackQuery, bot: Bot):
+    await callback.answer()  # WAJIB baris pertama
+
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("❌ Akses ditolak.", show_alert=True)
         return
 
-    order_id = callback.data[len("tr_approve:"):]
-    ok, msg  = await _do_approve_request(order_id, callback.from_user.id, bot)
-
+    # Parse: tr_approve:{user_id}:{coins}:{amount_rm}:{order_id}
     try:
-        await callback.message.edit_caption(caption=msg, parse_mode="Markdown")
+        parts    = callback.data.split(":")
+        user_id  = int(parts[1])
+        coins    = int(parts[2])
+        amount   = float(parts[3])
+        order_id = parts[4]
+    except Exception as e:
+        logger.error("tr_approve parse error: %s | data=%s", e, callback.data)
+        await callback.answer("⚠️ Ralat data callback.", show_alert=True)
+        return
+
+    # Tambah syiling ke wallet user
+    try:
+        await db.add_coins(user_id, coins, f"Topup {order_id} diluluskan")
+        new_balance = await db.get_wallet(user_id)
+    except Exception as e:
+        logger.error("approve add_coins gagal uid=%s: %s", user_id, e)
+        await callback.answer("⚠️ Gagal tambah syiling.", show_alert=True)
+        return
+
+    # Kemaskini status dalam DB jika table wujud (optional)
+    try:
+        await db.approve_topup_request(order_id, callback.from_user.id)
+    except Exception as e:
+        logger.warning("approve_topup_request DB skip (table mungkin belum wujud): %s", e)
+
+    # Notify user
+    try:
+        await bot.send_message(
+            user_id,
+            f"✅ *Topup Berjaya!*\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            f"🪙 *{coins:,} Syiling* telah dikreditkan ke wallet anda.\n"
+            f"Order ID: `{order_id}`\n"
+            f"Baki semasa: *{new_balance:,} Syiling*",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.warning("Gagal notify user approve uid=%s: %s", user_id, e)
+
+    # Log admin action
+    await db.write_admin_log(
+        ADMIN_ID, f"approve_topup_{order_id}",
+        target_user_id=user_id, notes=f"{coins} syiling RM{amount:.2f}"
+    )
+
+    # Update caption mesej admin
+    user  = await db.get_user_info(user_id)
+    uname = f"@{user['username']}" if user and user.get("username") else str(user_id)
+    msg   = (
+        f"✅ *{order_id} DILULUSKAN*\n\n"
+        f"👤 {uname} (`{user_id}`)\n"
+        f"🪙 {coins:,} Syiling | RM{amount:.2f}\n"
+        f"Baki baru: *{new_balance:,} syiling*"
+    )
+    try:
+        await callback.message.edit_caption(caption=msg, parse_mode="Markdown", reply_markup=None)
     except Exception:
         try:
-            await callback.message.edit_text(msg, parse_mode="Markdown")
+            await callback.message.edit_text(msg, parse_mode="Markdown", reply_markup=None)
         except Exception:
             pass
-    await callback.answer("✅ Diluluskan!" if ok else "⚠️ Gagal.", show_alert=not ok)
 
 
 @router.callback_query(F.data.startswith("tr_reject:"))
 async def cb_reject_topup_request(callback: CallbackQuery, bot: Bot):
+    await callback.answer()  # WAJIB baris pertama
+
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("❌ Akses ditolak.", show_alert=True)
         return
 
-    order_id = callback.data[len("tr_reject:"):]
-    ok, msg  = await _do_reject_request(order_id, callback.from_user.id, bot)
-
+    # Parse: tr_reject:{user_id}:{order_id}
     try:
-        await callback.message.edit_caption(caption=msg, parse_mode="Markdown")
+        parts    = callback.data.split(":")
+        user_id  = int(parts[1])
+        order_id = parts[2]
+    except Exception as e:
+        logger.error("tr_reject parse error: %s | data=%s", e, callback.data)
+        await callback.answer("⚠️ Ralat data callback.", show_alert=True)
+        return
+
+    # Kemaskini status dalam DB jika table wujud (optional)
+    try:
+        await db.reject_topup_request(order_id, callback.from_user.id)
+    except Exception as e:
+        logger.warning("reject_topup_request DB skip (table mungkin belum wujud): %s", e)
+
+    # Notify user
+    try:
+        await bot.send_message(
+            user_id,
+            f"❌ *Topup Ditolak*\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            f"Order ID: `{order_id}`\n"
+            "Sila hubungi admin jika ada masalah.",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.warning("Gagal notify user reject uid=%s: %s", user_id, e)
+
+    # Log admin action
+    await db.write_admin_log(
+        ADMIN_ID, f"reject_topup_{order_id}", target_user_id=user_id
+    )
+
+    # Update caption mesej admin
+    user  = await db.get_user_info(user_id)
+    uname = f"@{user['username']}" if user and user.get("username") else str(user_id)
+    msg   = (
+        f"❌ *{order_id} DITOLAK*\n\n"
+        f"👤 {uname} (`{user_id}`)"
+    )
+    try:
+        await callback.message.edit_caption(caption=msg, parse_mode="Markdown", reply_markup=None)
     except Exception:
         try:
-            await callback.message.edit_text(msg, parse_mode="Markdown")
+            await callback.message.edit_text(msg, parse_mode="Markdown", reply_markup=None)
         except Exception:
             pass
-    await callback.answer("❌ Ditolak." if ok else "⚠️ Gagal.", show_alert=not ok)
 
 
 # ──────────────────────────────────────────────────────────────

@@ -255,11 +255,12 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
     uid      = callback.from_user.id
     username = callback.from_user.username or str(uid)
 
-    # BUG 3 FIX: Jana order_id DULU sebelum DB call
+    # Jana order_id DULU — tidak bergantung pada DB
     import random as _random
     order_id = f"ORD{_random.randint(10000000, 99999999)}"
 
-    # Cuba simpan ke DB — jika gagal, tunjuk error dan stop
+    # Cuba simpan ke DB — OPTIONAL: gagal tidak sekat flow
+    # (table topup_requests mungkin belum wujud — akan berfungsi setelah SQL dijalankan)
     try:
         await db.create_topup_request(
             order_id=order_id,
@@ -268,12 +269,12 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
             coins=coins,
             amount_rm=amount,
         )
+        logger.info("topup_request disimpan ke DB: %s uid=%s", order_id, uid)
     except Exception as db_error:
-        logger.error("create_topup_request gagal uid=%s: %s", uid, db_error)
-        await callback.message.answer(
-            "⚠️ Ralat pangkalan data. Sila cuba lagi atau hubungi @berryrcr."
+        logger.warning(
+            "create_topup_request gagal uid=%s order=%s (table mungkin belum wujud): %s",
+            uid, order_id, db_error,
         )
-        return
 
     await state.update_data(order_id=order_id, coins=coins, amount=amount)
 
@@ -361,25 +362,24 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
 
     receipt_file_id = message.photo[-1].file_id
 
+    # Cuba kemaskini DB — OPTIONAL: gagal tidak sekat flow
     try:
         await db.update_topup_receipt(order_id, receipt_file_id)
     except Exception as e:
-        logger.error("update_topup_receipt gagal uid=%s: %s", uid, e)
-        await message.answer(
-            "⚠️ Ralat sistem. Sila cuba lagi atau hubungi @berryrcr.",
-            reply_markup=kedai_menu_kb(),
-        )
-        return
+        logger.warning("update_topup_receipt gagal uid=%s (table mungkin belum wujud): %s", uid, e)
 
     await state.clear()
 
     await message.answer(
-        f"✅ Resit diterima. Pesanan anda sedang disemak oleh admin.\n"
-        f"Order ID: `{order_id}`",
+        f"✅ Resit diterima! Pesanan anda sedang disemak oleh admin.\n"
+        f"Order ID: `{order_id}`\n\n"
+        "Anda akan dimaklumkan setelah topup diluluskan.",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
 
+    # Hantar notifikasi admin — sertakan user_id, coins, amount dalam keyboard
+    # supaya admin boleh approve/reject TANPA bergantung pada table DB
     try:
         uname_display = f"@{username}" if message.from_user.username else str(uid)
         caption = (
@@ -396,7 +396,7 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
             receipt_file_id,
             caption=caption,
             parse_mode="Markdown",
-            reply_markup=topup_request_admin_kb(order_id),
+            reply_markup=topup_request_admin_kb(order_id, uid, coins, amount),
         )
     except Exception as e:
         logger.warning("Gagal notifikasi admin resit: %s", e)
