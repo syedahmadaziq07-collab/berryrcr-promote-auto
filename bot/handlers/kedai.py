@@ -89,14 +89,21 @@ async def _kedai_text(uid: int) -> str:
 # ⬅️ KEMBALI — dari FSM state → balik ke Kedai
 # ─────────────────────────────────────────────
 
-@router.message(TopupFSM.waiting_receipt,     F.text == "⬅️ Kembali")
-@router.message(SendCoinsFSM.waiting_target,  F.text == "⬅️ Kembali")
-@router.message(SendCoinsFSM.waiting_amount,  F.text == "⬅️ Kembali")
+@router.message(TopupFSM.waiting_receipt,      F.text == "⬅️ Kembali")
+@router.message(TopupFSM.waiting_receipt,      F.text == "🏠 Laman Utama")
+@router.message(SendCoinsFSM.waiting_target,   F.text == "⬅️ Kembali")
+@router.message(SendCoinsFSM.waiting_target,   F.text == "🏠 Laman Utama")
+@router.message(SendCoinsFSM.waiting_amount,   F.text == "⬅️ Kembali")
+@router.message(SendCoinsFSM.waiting_amount,   F.text == "🏠 Laman Utama")
 @router.message(GiftUserbotFSM.waiting_target, F.text == "⬅️ Kembali")
+@router.message(GiftUserbotFSM.waiting_target, F.text == "🏠 Laman Utama")
 async def cancel_kedai_fsm(message: Message, state: FSMContext):
     await state.clear()
-    text = await _kedai_text(message.from_user.id)
-    await message.answer(text, parse_mode="Markdown", reply_markup=kedai_menu_kb())
+    await message.answer(
+        "🏠 *Menu Utama*\n\nSila pilih tindakan:",
+        parse_mode="Markdown",
+        reply_markup=main_menu_kb(),
+    )
 
 
 @router.message(F.text == "⬅️ Kembali")
@@ -436,7 +443,7 @@ async def cb_topup_cancel(callback: CallbackQuery, state: FSMContext):
 # 🛍 BELI USERBOT — Langkah 1: Papar Pilihan Pelan
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🛍 Beli Userbot")
+@router.message(F.text == "🛍️ Beli Userbot")
 async def msg_beli_userbot(message: Message, state: FSMContext):
     await state.clear()
     uid         = message.from_user.id
@@ -697,7 +704,7 @@ async def msg_hantar_syiling(message: Message, state: FSMContext):
         f"Baki anda: *{balance:,} Syiling*\n\n"
         "Sila masukkan *ID Telegram* penerima:\n"
         "_(Penerima mesti pernah guna bot ini)_\n\n"
-        "_Tekan ⬅️ Kembali untuk batal._",
+        "_Tekan 🏠 Laman Utama untuk batal._",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
@@ -712,7 +719,7 @@ async def process_send_target(message: Message, state: FSMContext):
         await message.answer(
             "⚠️ Sila masukkan ID Telegram yang sah (nombor sahaja).\n"
             "Contoh: `123456789`\n\n"
-            "_Tekan ⬅️ Kembali untuk batal._",
+            "_Tekan 🏠 Laman Utama untuk batal._",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -739,7 +746,7 @@ async def process_send_target(message: Message, state: FSMContext):
     await message.answer(
         f"✅ Penerima: *{target['full_name']}* (`{target_id}`)\n\n"
         "Sila masukkan *jumlah syiling* yang ingin dihantar:\n\n"
-        "_Tekan ⬅️ Kembali untuk batal._",
+        "_Tekan 🏠 Laman Utama untuk batal._",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
@@ -813,7 +820,7 @@ async def msg_gift_userbot(message: Message, state: FSMContext):
         f"ID Userbot anda: `{ub_id}`\n\n"
         "Sila masukkan *ID Telegram* penerima:\n"
         "_(Penerima mesti pernah guna bot ini)_\n\n"
-        "_Tekan ⬅️ Kembali untuk batal._",
+        "_Tekan 🏠 Laman Utama untuk batal._",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
@@ -826,7 +833,7 @@ async def process_gift_target(message: Message, state: FSMContext):
     if not text.isdigit():
         await message.answer(
             "⚠️ Sila masukkan ID Telegram yang sah (nombor sahaja).\n\n"
-            "_Tekan ⬅️ Kembali untuk batal._",
+            "_Tekan 🏠 Laman Utama untuk batal._",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -877,15 +884,14 @@ async def process_gift_target(message: Message, state: FSMContext):
 
 
 # ─────────────────────────────────────────────
-# 🌐 LAMAN UTAMA
+# 🏠 LAMAN UTAMA
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🌐 Laman Utama")
-async def msg_laman_utama(message: Message):
+@router.message(F.text == "🏠 Laman Utama")
+async def msg_laman_utama(message: Message, state: FSMContext):
+    await state.clear()
     await message.answer(
-        "🌐 *Laman Utama*\n\n"
-        f"Layari atau hubungi kami di:\n{WEBSITE_URL}\n\n"
-        "Untuk sokongan: @berryrcr",
+        "🏠 *Menu Utama*\n\nSila pilih tindakan:",
         parse_mode="Markdown",
-        reply_markup=kedai_menu_kb(),
+        reply_markup=main_menu_kb(),
     )

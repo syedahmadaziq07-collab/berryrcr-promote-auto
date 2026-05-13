@@ -31,11 +31,9 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
 def kedai_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🏆 Papan Pendahulu"), KeyboardButton(text="📤 Hantar Syiling")],
-            [KeyboardButton(text="🛍 Beli Userbot"),    KeyboardButton(text="💳 Topup Syiling")],
-            [KeyboardButton(text="🎁 Gift Userbot")],
-            [KeyboardButton(text="🌐 Laman Utama")],
-            [KeyboardButton(text="⬅️ Kembali")],
+            [KeyboardButton(text="🛍️ Beli Userbot"),    KeyboardButton(text="💳 Topup Syiling")],
+            [KeyboardButton(text="📤 Hantar Syiling"),  KeyboardButton(text="🎁 Gift Userbot")],
+            [KeyboardButton(text="🏆 Papan Pendahulu"), KeyboardButton(text="🏠 Laman Utama")],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,

@@ -1,0 +1,92 @@
+Fix dua bugs kritikal dalam bot:
+
+BUG 1 — MENU UTAMA MUNCUL BERGANDA
+Bila user tekan "Kembali", bot reply 
+"Menu Utama" 3 kali sekaligus.
+
+Semak dan fix:
+1. Cari semua handler yang mendengar F.text == "↩️ Kembali"
+   atau F.text == "🏠 Menu Utama"
+2. Pastikan handler ini HANYA didaftarkan SEKALI
+3. Semak handlers/__init__.py — pastikan tiada router 
+   didaftarkan dua kali
+4. Semak main.py — pastikan include_router dipanggil 
+   sekali sahaja untuk setiap router
+
+BUG 2 — SELEPAS HANTAR NOMBOR TELEFON → "SILA GUNAKAN MENU"
+Bila user hantar nombor telefon dalam OTP flow,
+bot reply "Sila gunakan menu di bawah" — SALAH.
+Bermakna FSM state waiting_phone tidak aktif.
+
+Semak dan fix dalam buat_userbot.py:
+
+LANGKAH 1 — Semak handler cb_sambung_akaun
+Pastikan selepas bot hantar mesej minta nombor,
+state ditetapkan dengan betul:
+
+@router.callback_query(F.data == "sambung_akaun")
+async def cb_sambung_akaun(callback: CallbackQuery, 
+                            state: FSMContext):
+    await callback.answer()
+    await state.set_state(UserbotStates.waiting_phone)
+    await callback.message.answer(
+        "📱 Sambung Akaun Telegram\n\n"
+        "Sila hantar nombor Telegram anda.\n"
+        "Contoh: +60123456789\n\n"
+        "Atau tekan butang 📱 Hantar Nombor di bawah.",
+        reply_markup=phone_request_keyboard()
+    )
+
+LANGKAH 2 — Semak handler process_phone
+Pastikan decorator betul:
+
+@router.message(UserbotStates.waiting_phone)
+async def process_phone(message: Message, 
+                         state: FSMContext):
+    # handle nombor telefon
+
+LANGKAH 3 — Semak handler contact (request_contact)
+Jika user hantar contact (butang Hantar Nombor),
+pastikan ada handler berasingan:
+
+@router.message(
+    UserbotStates.waiting_phone,
+    F.contact
+)
+async def process_phone_contact(message: Message,
+                                  state: FSMContext):
+    phone = message.contact.phone_number
+    if not phone.startswith("+"):
+        phone = "+" + phone
+    # teruskan proses OTP
+
+LANGKAH 4 — Semak UserbotStates
+Pastikan states didefinisikan dengan betul:
+
+from aiogram.fsm.state import State, StatesGroup
+
+class UserbotStates(StatesGroup):
+    waiting_phone = State()
+    waiting_otp = State()
+    waiting_2fa = State()
+
+LANGKAH 5 — Semak susunan router dalam __init__.py
+Router buat_userbot MESTI didaftarkan SEBELUM
+fallback router supaya FSM states diproses dahulu.
+
+Susunan yang betul dalam all_routers:
+1. start_router
+2. kedai_router
+3. buat_userbot_router  ← MESTI sebelum fallback
+4. tetapan_router
+5. promote_router
+6. admin_router
+7. fallback_router  ← MESTI paling akhir
+
+PENTING:
+- Jangan ubah flow lain
+- Jangan buat laman web / API
+- Bot dijalankan dengan: cd bot && python main.py
+- Semua teks Bahasa Melayu Malaysia
+- Tunjukkan fail yang diubah selepas fix
+- Jalankan bot dan tunjukkan log untuk sahkan tiada error
