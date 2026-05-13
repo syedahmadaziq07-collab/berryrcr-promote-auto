@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from telethon.errors import FloodWaitError
 import database as db
 from config import MANDATORY_FOOTER, COIN_PLANS, MIN_DELAY_MINUTES
 from services.telethon_service import send_message_to_group
@@ -98,6 +99,7 @@ async def _run_promo(user_id: int):
         success_count = 0
         fail_count    = 0
 
+        flood_wait_total = 0
         for group in groups:
             gid = group["group_id"]
             # Pilih mesej: mod lanjutan > mesej umum
@@ -116,6 +118,29 @@ async def _run_promo(user_id: int):
                 )
                 success_count += 1
                 await asyncio.sleep(3)
+            except FloodWaitError as e:
+                wait_secs = e.seconds + 5
+                flood_wait_total += wait_secs
+                fail_count += 1
+                logger.warning(f"FloodWait group {gid}: tunggu {wait_secs}s (jumlah flood: {flood_wait_total}s)")
+                if flood_wait_total > 300:
+                    logger.error(f"FloodWait melebihi 5 minit — hentikan promo sementara user {user_id}")
+                    await db.set_promo_running(user_id, False)
+                    stop_promo_job(user_id)
+                    if _bot_instance:
+                        try:
+                            await _bot_instance.send_message(
+                                user_id,
+                                "⚠️ *Promote Dihentikan Sementara*\n\n"
+                                "Akaun anda telah dihadkan oleh Telegram (Flood Wait).\n"
+                                "Promote akan dihentikan untuk mengelakkan larangan akaun.\n\n"
+                                "Sila tunggu beberapa jam sebelum mulakan semula.",
+                                parse_mode="Markdown",
+                            )
+                        except Exception:
+                            pass
+                    return
+                await asyncio.sleep(wait_secs)
             except Exception as e:
                 fail_count += 1
                 logger.error(f"Gagal hantar ke group {gid}: {e}")

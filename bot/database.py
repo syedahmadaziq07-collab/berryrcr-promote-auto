@@ -449,18 +449,23 @@ async def transfer_userbot_session(from_user_id: int, to_user_id: int):
     session = await get_session(from_user_id)
     if not session:
         return
+    new_session_payload = {
+        "user_id": to_user_id,
+        "phone_number": session.get("phone_number", ""),
+        "session_string": session.get("session_string", ""),
+        "tg_username": session.get("tg_username", ""),
+        "userbot_id": session.get("userbot_id", ""),
+        "connected_at": session.get("connected_at"),
+    }
+    try:
+        await client.table("sessions").upsert(new_session_payload, on_conflict="user_id").execute()
+        logger.info("transfer_userbot_session: upsert baru OK from=%s to=%s", from_user_id, to_user_id)
+    except Exception as e:
+        logger.error("transfer_userbot_session: upsert gagal — session TIDAK dipindah! from=%s to=%s: %s",
+                     from_user_id, to_user_id, e)
+        raise
     await delete_session(from_user_id)
-    await client.table("sessions").upsert(
-        {
-            "user_id": to_user_id,
-            "phone_number": session.get("phone_number", ""),
-            "session_string": session.get("session_string", ""),
-            "tg_username": session.get("tg_username", ""),
-            "userbot_id": session.get("userbot_id", ""),
-            "connected_at": session.get("connected_at"),
-        },
-        on_conflict="user_id",
-    ).execute()
+    logger.info("transfer_userbot_session: session lama dipadam from=%s", from_user_id)
     # Kemaskini userbots.owner_id supaya canonical source konsisten
     try:
         await client.table("userbots").update(
@@ -483,6 +488,7 @@ async def get_selected_groups(user_id: int):
 
 async def save_selected_groups(user_id: int, groups: list):
     client = await get_client()
+    backup = await get_selected_groups(user_id)
     await client.table("selected_groups").delete().eq("user_id", user_id).execute()
     if groups:
         rows = [
@@ -494,7 +500,26 @@ async def save_selected_groups(user_id: int, groups: list):
             }
             for g in groups
         ]
-        await client.table("selected_groups").insert(rows).execute()
+        try:
+            await client.table("selected_groups").insert(rows).execute()
+        except Exception as e:
+            logger.error("save_selected_groups INSERT gagal uid=%s — pulihkan backup: %s", user_id, e)
+            if backup:
+                restore_rows = [
+                    {
+                        "user_id": user_id,
+                        "group_id": b["group_id"],
+                        "group_title": b.get("group_title"),
+                        "group_username": b.get("group_username"),
+                    }
+                    for b in backup
+                ]
+                try:
+                    await client.table("selected_groups").insert(restore_rows).execute()
+                    logger.info("save_selected_groups: backup dipulihkan uid=%s", user_id)
+                except Exception as e2:
+                    logger.error("save_selected_groups: pulih backup gagal uid=%s: %s", user_id, e2)
+            raise
 
 
 # ─────────────────────────────────────────────

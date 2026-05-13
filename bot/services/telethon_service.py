@@ -77,6 +77,9 @@ async def send_message_to_group(session_string: str, group_id: int, message: str
     try:
         await client.send_message(group_id, message)
         return True
+    except FloodWaitError as e:
+        logger.warning("send_message_to_group FloodWait: group_id=%s — tunggu %ss", group_id, e.seconds)
+        raise
     except Exception as e:
         raise e
     finally:
