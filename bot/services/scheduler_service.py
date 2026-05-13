@@ -12,7 +12,7 @@ from telethon.errors import (
     AuthKeyUnregisteredError, UserDeactivatedBanError,
 )
 import database as db
-from config import MANDATORY_FOOTER, COIN_PLANS, MIN_DELAY_MINUTES, API_ID, API_HASH
+from config import MANDATORY_FOOTER, MIN_DELAY_MINUTES, API_ID, API_HASH
 
 logger = logging.getLogger(__name__)
 
@@ -230,9 +230,6 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
         )
 
         # ── 8. Bina teks mesej ──
-        plan = COIN_PLANS.get(sub["plan"], {})
-        add_footer = plan.get("footer_required", True)
-
         content_type = chosen_msg.get("content_type", "text")
         text_content = chosen_msg.get("text_content") or ""
 
@@ -261,8 +258,14 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
             logger.warning("[PROMO] uid=%s | text_content kosong dan expert_on=False — langkau kitaran", user_id)
             return
 
-        footer = MANDATORY_FOOTER if add_footer else ""
-        full_message = (text_content + footer) if text_content else ""
+        # Footer wajib semua plan — elak duplicate jika mesej sudah ada footer
+        footer_marker = "🌐 Promote Auto by @berryrcr_bot"
+        def _with_footer(text: str) -> str:
+            if not text:
+                return text
+            return text if footer_marker in text else text + MANDATORY_FOOTER
+
+        full_message = _with_footer(text_content)
 
         # ── 9. Ambil kumpulan yang dipilih ──
         groups = await db.get_selected_groups(user_id)
@@ -311,7 +314,7 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
 
                 # Pilih mesej: expert per-group > mesej umum
                 if expert_on and gid in group_msgs and group_msgs[gid]:
-                    grp_msg = group_msgs[gid] + footer
+                    grp_msg = _with_footer(group_msgs[gid])
                 elif full_message:
                     grp_msg = full_message
                 else:

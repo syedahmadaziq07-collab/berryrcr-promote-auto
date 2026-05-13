@@ -70,6 +70,6 @@ WEBSITE_URL = "https://t.me/berryrcr"
 MIN_DELAY_MINUTES = 30
 
 MANDATORY_FOOTER = (
-    "\n━━━━━━━━━━━━━━━\n"
-    "🤖 Auto Promote by @berryrcr"
+    "\n\n━━━━━━━━━━━━━━\n"
+    "🌐 Promote Auto by @berryrcr_bot"
 )
