@@ -90,13 +90,9 @@ async def _kedai_text(uid: int) -> str:
 # ─────────────────────────────────────────────
 
 @router.message(TopupFSM.waiting_receipt,      F.text == "⬅️ Kembali")
-@router.message(TopupFSM.waiting_receipt,      F.text == "🏠 Laman Utama")
 @router.message(SendCoinsFSM.waiting_target,   F.text == "⬅️ Kembali")
-@router.message(SendCoinsFSM.waiting_target,   F.text == "🏠 Laman Utama")
 @router.message(SendCoinsFSM.waiting_amount,   F.text == "⬅️ Kembali")
-@router.message(SendCoinsFSM.waiting_amount,   F.text == "🏠 Laman Utama")
 @router.message(GiftUserbotFSM.waiting_target, F.text == "⬅️ Kembali")
-@router.message(GiftUserbotFSM.waiting_target, F.text == "🏠 Laman Utama")
 async def cancel_kedai_fsm(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(

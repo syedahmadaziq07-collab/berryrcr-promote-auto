@@ -13,6 +13,8 @@ MENU_BUTTONS = {
     "🔑 Log Masuk Token",
     "📚 Buat Userbot",
     "⚙️ Tetapan",
+    "🏠 Laman Utama",
+    "⬅️ Kembali",
 }
 
 
@@ -28,6 +30,18 @@ async def fallback_handler(message: Message, state: FSMContext):
     # (topup, OTP, send coins, gift, dll)
     current_state = await state.get_state()
     if current_state is not None:
+        return
+
+    # Jika input nampak seperti nombor telefon (+60...) — kemungkinan bot restart
+    # dan state waiting_phone hilang
+    if text.startswith("+") and text[1:].replace(" ", "").isdigit() and len(text) >= 8:
+        logger.info("Fallback phone-like input uid=%s — sesi mungkin tamat", message.from_user.id)
+        await message.answer(
+            "⚠️ Sesi anda telah tamat.\n"
+            "Sila mulakan semula proses sambung akaun melalui *📚 Buat Userbot*.",
+            parse_mode="Markdown",
+            reply_markup=main_menu_kb(),
+        )
         return
 
     # Jika input nampak seperti kod OTP (digit sahaja, atau digit dengan jarak)
