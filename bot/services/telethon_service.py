@@ -25,15 +25,22 @@ async def create_client_from_session(session_string: str) -> TelegramClient:
 
 
 async def send_code(client: TelegramClient, phone: str) -> str:
+    masked = phone[:4] + "****" if len(phone) > 4 else "****"
+    logger.info("send_code_request → phone=%s", masked)
     result = await client.send_code_request(phone)
+    logger.info("send_code_request OK → phone=%s hash_prefix=%s", masked, result.phone_code_hash[:6])
     return result.phone_code_hash
 
 
 async def sign_in(client: TelegramClient, phone: str, code: str, phone_code_hash: str):
+    masked = phone[:4] + "****" if len(phone) > 4 else "****"
+    logger.info("sign_in attempt → phone=%s", masked)
     try:
         await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+        logger.info("sign_in SUCCESS → phone=%s", masked)
         return "success"
     except SessionPasswordNeededError:
+        logger.info("sign_in → 2FA diperlukan phone=%s", masked)
         return "2fa_required"
 
 

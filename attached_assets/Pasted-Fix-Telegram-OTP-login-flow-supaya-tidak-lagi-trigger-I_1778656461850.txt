@@ -1,0 +1,112 @@
+Fix Telegram OTP login flow supaya tidak lagi trigger:
+“Incomplete login attempt / code was previously shared”.
+
+JANGAN buat web/dashboard/API. Telegram bot Python aiogram + Telethon sahaja.
+
+MASALAH SEKARANG:
+Telegram block login kerana:
+- OTP dihantar dua kali
+- duplicate login flow
+- duplicate handlers
+- FSM reset semasa login
+- multiple sign_in attempt
+- dua bot instance cuba login serentak
+
+Akibat:
+“Incomplete login attempt”
+“Code was previously shared”
+OTP expired walaupun betul.
+
+TUGAS:
+
+1. Audit penuh flow:
+- 📚 Buat Userbot
+- OTP login
+- 2FA
+- resend code
+- reconnect session
+- login token
+
+2. Pastikan HANYA SATU login attempt aktif untuk satu user.
+Jika user sudah berada dalam:
+- waiting_phone
+- waiting_otp
+- waiting_2fa
+
+Jangan restart flow.
+Sebaliknya:
+await callback.answer(
+    "⚠️ Sesi login masih aktif. Lengkapkan atau tekan ❌ Batal.",
+    show_alert=True
+)
+
+3. BUANG semua duplicate trigger.
+Pastikan:
+- OTP hanya dihantar SEKALI
+- send_code_request tidak dipanggil dua kali
+- sign_in tidak dipanggil dua kali
+- callback tidak duplicate
+
+4. JANGAN panggil:
+state.clear()
+semasa flow login masih aktif.
+
+5. Dalam process_phone:
+process message.contact dahulu sebelum message.text.
+
+Gunakan flow selamat:
+
+if message.contact:
+    phone = message.contact.phone_number.strip()
+    if not phone.startswith("+"):
+        phone = "+" + phone
+elif message.text:
+    phone = message.text.strip()
+    if not phone.startswith("+"):
+        phone = "+" + phone
+
+6. Tambah login lock protection:
+Jika user sudah ada login_task aktif:
+- jangan buat login baru
+- jangan resend OTP baru
+
+7. Pastikan callback.answer() dipanggil awal dalam semua callback login.
+
+8. Pastikan:
+delete_webhook(drop_pending_updates=True)
+dipanggil sebelum polling start.
+
+9. Pastikan hanya SATU bot instance aktif.
+Tambah startup log:
+- BOT MODE
+- polling active
+- webhook disabled
+
+10. Tambah logging penuh:
+LOGGER.info untuk:
+- send_code_request
+- sign_in
+- OTP received
+- session saved
+- login cancelled
+- login resumed
+
+11. Jika OTP request masih duplicate:
+gunakan debounce/lock berdasarkan user_id.
+
+12. Pastikan:
+- nombor Malaysia +60
+- Indonesia +62
+- Singapore +65
+semua diterima.
+
+13. Restart bot dan tunjuk:
+- fail yang diubah
+- startup log
+- log OTP flow selepas fix
+
+Fokus utama:
+- tiada duplicate OTP
+- tiada “code previously shared”
+- login sekali terus berjaya
+- tiada spam flow

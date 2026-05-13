@@ -176,8 +176,15 @@ async def check_tables():
 
 
 async def main():
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN tidak ditetapkan!")
+    # Baca semula dari os.environ pada waktu runtime —
+    # elak isu secrets tidak disuntik semasa import awal
+    token = os.getenv("BOT_TOKEN", "").strip()
+    if not token:
+        # Cuba sekali lagi selepas 2 saat (Replit kadang lambat inject secrets)
+        await asyncio.sleep(2)
+        token = os.getenv("BOT_TOKEN", "").strip()
+    if not token:
+        logger.error("BOT_TOKEN tidak ditetapkan! Pastikan secret BOT_TOKEN ada dalam Replit Secrets.")
         sys.exit(1)
 
     logger.info("Menyambung ke Supabase...")
@@ -186,7 +193,7 @@ async def main():
 
     await check_tables()
 
-    bot = Bot(token=BOT_TOKEN)
+    bot = Bot(token=token)
     dp = Dispatcher(storage=MemoryStorage())
 
     for router in all_routers:
@@ -201,7 +208,12 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
 
     me = await bot.get_me()
-    logger.info(f"Bot aktif: @{me.username} (id={me.id}) — polling bermula")
+    logger.info("=" * 55)
+    logger.info("BOT MODE  : polling aktif — webhook dilumpuhkan")
+    logger.info("BOT       : @%s (id=%s)", me.username, me.id)
+    logger.info("STORAGE   : MemoryStorage (FSM in-memory)")
+    logger.info("INSTANCE  : satu — drop_pending_updates=True")
+    logger.info("=" * 55)
 
     try:
         await aggressive_poll(bot, dp)

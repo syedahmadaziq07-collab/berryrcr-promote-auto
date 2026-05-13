@@ -41,7 +41,8 @@ class TransferUserbotFSM(StatesGroup):
     waiting_target = State()
 
 
-_pending: dict = {}   # uid → {"client", "phone", "hash"}
+_pending: dict = {}        # uid → {"client", "phone", "hash"}
+_sending_otp: set = set()  # uid sedang dalam proses hantar OTP — elak race condition
 
 
 # ─────────────────────────────────────────────
@@ -85,6 +86,21 @@ async def _ask_for_phone(message: Message, state: FSMContext):
 
 @router.message(F.text == "📚 Buat Userbot")
 async def msg_buat_userbot(message: Message, state: FSMContext):
+    # Guard — jangan interrupt login flow yang sedang aktif
+    current = await state.get_state()
+    if current in (
+        BuatUserbotFSM.waiting_phone,
+        BuatUserbotFSM.waiting_otp,
+        BuatUserbotFSM.waiting_2fa,
+    ):
+        logger.info("msg_buat_userbot SKIP — login aktif uid=%s state=%s", message.from_user.id, current)
+        await message.answer(
+            "⚠️ *Sesi login masih aktif.*\n\n"
+            "Sila lengkapkan proses sambung akaun atau tekan *❌ Batal* untuk henti.",
+            parse_mode="Markdown",
+        )
+        return
+
     await state.clear()
     uid = message.from_user.id
     userbot_rec = await db.get_userbot(uid)   # canonical source — userbots table
@@ -216,7 +232,13 @@ async def process_phone(message: Message, state: FSMContext):
         )
         return
 
-    # Cleanup sesi lama jika ada — elak hantar OTP dua kali
+    # Debounce — elak race condition jika dua update diproses serentak
+    if uid in _sending_otp:
+        logger.warning("process_phone SKIP — OTP sedang dihantar uid=%s (race condition)", uid)
+        return
+    _sending_otp.add(uid)
+
+    # Cleanup sesi lama jika ada
     if uid in _pending:
         logger.info("process_phone: cleanup _pending lama uid=%s", uid)
         await _cleanup_pending(uid)
@@ -226,11 +248,13 @@ async def process_phone(message: Message, state: FSMContext):
         reply_markup=remove_kb(),
     )
     try:
+        logger.info("process_phone: mula send_code uid=%s phone=%s", uid, _mask_phone(phone))
         client = await create_client(uid)
         phone_code_hash = await send_code(client, phone)
         _pending[uid] = {"client": client, "phone": phone, "hash": phone_code_hash}
         await state.update_data(phone=phone)
         await state.set_state(BuatUserbotFSM.waiting_otp)
+        logger.info("process_phone: OTP dihantar — uid=%s state=waiting_otp", uid)
         await msg.edit_text(
             "📨 Kod OTP telah dihantar melalui Telegram rasmi.\n\n"
             "Sila hantar kod OTP anda *dengan jarak*.\n"
@@ -238,7 +262,7 @@ async def process_phone(message: Message, state: FSMContext):
             parse_mode="Markdown",
         )
     except Exception as e:
-        logger.error("send_code error uid=%s: %s", uid, e)
+        logger.error("process_phone send_code GAGAL uid=%s: %s", uid, e)
         await _cleanup_pending(uid)
         await state.clear()
         await msg.edit_text(
@@ -248,6 +272,8 @@ async def process_phone(message: Message, state: FSMContext):
             parse_mode="Markdown",
         )
         await message.answer("Kembali ke menu:", reply_markup=main_menu_kb())
+    finally:
+        _sending_otp.discard(uid)
 
 
 # ─────────────────────────────────────────────
