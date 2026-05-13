@@ -61,18 +61,35 @@ def topup_packages_reply_kb() -> ReplyKeyboardMarkup:
 
 
 # ─────────────────────────────────────────────
-# BELI USERBOT CONFIRM — Reply Keyboard
+# BELI USERBOT — Pilih Pelan (Inline)
 # ─────────────────────────────────────────────
 
-def beli_userbot_confirm_reply_kb() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="✅ Ya, Beli Userbot")],
-            [KeyboardButton(text="⬅️ Kembali")],
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=False,
-    )
+def beli_userbot_plans_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="⭐ PLUS — 300 Syiling (RM3)",
+            callback_data="buy_plan_select:PLUS",
+        )],
+        [InlineKeyboardButton(
+            text="🔥 PRO — 600 Syiling (RM6)",
+            callback_data="buy_plan_select:PRO",
+        )],
+        [InlineKeyboardButton(
+            text="💎 PREMIUM — 1,000 Syiling (RM10)",
+            callback_data="buy_plan_select:PREMIUM",
+        )],
+        [InlineKeyboardButton(text="❌ Batal", callback_data="beli_userbot_cancel")],
+    ])
+
+
+def beli_userbot_confirm_kb(plan_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="✅ Ya, Beli Sekarang",
+            callback_data=f"buy_plan_confirm:{plan_key}",
+        )],
+        [InlineKeyboardButton(text="⬅️ Kembali", callback_data="beli_userbot_back")],
+    ])
 
 
 # ─────────────────────────────────────────────
@@ -175,8 +192,9 @@ def buat_userbot_kb(has_userbot: bool, has_plan: bool, has_session: bool = False
             ])
         if not has_plan:
             buttons.append([
-                InlineKeyboardButton(text="⭐ Aktif Pelan PLUS", callback_data="activate_plus"),
-                InlineKeyboardButton(text="🔥 Aktif Pelan PRO",  callback_data="activate_pro"),
+                InlineKeyboardButton(text="⭐ PLUS",    callback_data="activate_plus"),
+                InlineKeyboardButton(text="🔥 PRO",     callback_data="activate_pro"),
+                InlineKeyboardButton(text="💎 PREMIUM", callback_data="activate_premium"),
             ])
         buttons.append([
             InlineKeyboardButton(text="📤 Pindah Userbot", callback_data="transfer_userbot_start"),

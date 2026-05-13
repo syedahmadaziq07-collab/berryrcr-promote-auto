@@ -30,6 +30,13 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     expires_at TIMESTAMPTZ
 );
 
+-- MIGRATION: Tambah column hilang jika table sudah wujud dengan schema lama
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active     BOOLEAN DEFAULT TRUE;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+-- Kemaskini rekod lama yang tiada nilai active
+UPDATE subscriptions SET active = TRUE WHERE active IS NULL;
+
 -- TABLE: sessions
 -- PENTING: Pastikan column userbot_id, tg_username, connected_at wujud!
 CREATE TABLE IF NOT EXISTS sessions (

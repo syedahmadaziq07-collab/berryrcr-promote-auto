@@ -417,16 +417,25 @@ async def cb_disconnect(callback: CallbackQuery, state: FSMContext):
 # Aktifkan Pelan PLUS / PRO
 # ─────────────────────────────────────────────
 
-@router.callback_query(F.data.in_({"activate_plus", "activate_pro"}))
-async def cb_activate_plan(callback: CallbackQuery):
-    plan_key = "PLUS" if callback.data == "activate_plus" else "PRO"
-    plan = COIN_PLANS[plan_key]
-    uid = callback.from_user.id
+_ACTIVATE_MAP = {
+    "activate_plus":    "PLUS",
+    "activate_pro":     "PRO",
+    "activate_premium": "PREMIUM",
+}
+_CONFIRM_MAP = {
+    "confirm_activate_plus":    "PLUS",
+    "confirm_activate_pro":     "PRO",
+    "confirm_activate_premium": "PREMIUM",
+}
 
-    session = await db.get_session(uid)
-    if not session:
-        await callback.answer("⚠️ Sambung akaun dahulu!", show_alert=True)
-        return
+
+@router.callback_query(F.data.in_(set(_ACTIVATE_MAP.keys())))
+async def cb_activate_plan(callback: CallbackQuery):
+    plan_key = _ACTIVATE_MAP[callback.data]
+    plan     = COIN_PLANS[plan_key]
+    uid      = callback.from_user.id
+
+    logger.info("cb_activate_plan: uid=%s plan=%s", uid, plan_key)
 
     balance = await db.get_wallet(uid)
     if balance < plan["coins"]:
@@ -436,12 +445,11 @@ async def cb_activate_plan(callback: CallbackQuery):
         )
         return
 
-    # Jawab SEBELUM edit_text
     await callback.answer()
     text = (
-        f"📋 *Sahkan Aktivasi Pelan*\n\n"
+        f"📋 *Sahkan Naiktaraf Pelan*\n\n"
         f"Pelan: *{plan['name']}*\n"
-        f"Kos: *{plan['coins']} Syiling*\n"
+        f"Kos: *{plan['coins']:,} Syiling*\n"
         f"Baki semasa: *{balance:,} Syiling*\n"
         f"Baki selepas: *{balance - plan['coins']:,} Syiling*\n\n"
         f"Teruskan?"
@@ -452,16 +460,19 @@ async def cb_activate_plan(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.in_({"confirm_activate_plus", "confirm_activate_pro"}))
+@router.callback_query(F.data.in_(set(_CONFIRM_MAP.keys())))
 async def cb_confirm_activate(callback: CallbackQuery):
-    plan_key = "PLUS" if "plus" in callback.data else "PRO"
-    plan = COIN_PLANS[plan_key]
-    uid = callback.from_user.id
+    plan_key = _CONFIRM_MAP[callback.data]
+    plan     = COIN_PLANS[plan_key]
+    uid      = callback.from_user.id
 
-    # Jawab SEBELUM deduct_coins (DB call berat)
+    logger.info("cb_confirm_activate: uid=%s plan=%s — mula proses", uid, plan_key)
     await callback.answer("⏳ Memproses...")
-    ok = await db.deduct_coins(uid, plan["coins"], f"Aktif pelan {plan['name']}")
+
+    ok = await db.deduct_coins(uid, plan["coins"], f"Naiktaraf pelan {plan['name']}")
     if not ok:
+        balance = await db.get_wallet(uid)
+        logger.warning("cb_confirm_activate: uid=%s baki tidak cukup — ada %d perlu %d", uid, balance, plan["coins"])
         await callback.message.edit_text(
             "⚠️ *Baki tidak mencukupi!*\n\nSila topup syiling dahulu.",
             parse_mode="Markdown",
@@ -470,6 +481,7 @@ async def cb_confirm_activate(callback: CallbackQuery):
         return
 
     await db.create_subscription(uid, plan_key)
+    logger.info("cb_confirm_activate: uid=%s pelan=%s BERJAYA diaktifkan", uid, plan_key)
     await callback.message.edit_text(
         f"✅ *Pelan {plan['name']} Berjaya Diaktifkan!*\n\n"
         "Gunakan *⚙️ Tetapan* untuk konfigurasi kumpulan, mesej & jarak masa.",

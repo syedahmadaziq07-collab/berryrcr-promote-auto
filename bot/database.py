@@ -146,29 +146,64 @@ async def transfer_coins(from_id: int, to_id: int, amount: int, description: str
 
 
 # ─────────────────────────────────────────────
-# SUBSCRIPTIONS (Pelan PLUS/PRO)
+# SUBSCRIPTIONS (Pelan PLUS/PRO/PREMIUM)
 # ─────────────────────────────────────────────
 
 async def get_active_subscription(user_id: int):
+    """
+    Dapatkan pelan aktif user.
+    Resilient: Cuba filter by active=True dulu; jika column tiada, ambil rekod terbaru sahaja.
+    """
     client = await get_client()
-    res = (
-        await client.table("subscriptions")
-        .select("*")
-        .eq("user_id", user_id)
-        .eq("active", True)
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    return res.data[0] if res.data else None
+    try:
+        res = (
+            await client.table("subscriptions")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("active", True)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        # Column 'active' atau 'created_at' mungkin tidak wujud — fallback ke rekod terbaru
+        logger.warning("get_active_subscription fallback (schema lama) uid=%s: %s", user_id, e)
+        try:
+            res = (
+                await client.table("subscriptions")
+                .select("user_id,plan")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            return res.data[0] if res.data else None
+        except Exception as e2:
+            logger.error("get_active_subscription gagal sepenuhnya uid=%s: %s", user_id, e2)
+            return None
 
 
 async def create_subscription(user_id: int, plan: str):
+    """
+    Simpan subscription baru.
+    Resilient: Cuba set active=False pada rekod lama dulu; jika gagal (column tiada), teruskan insert.
+    """
     client = await get_client()
-    await client.table("subscriptions").update({"active": False}).eq("user_id", user_id).execute()
-    await client.table("subscriptions").insert(
-        {"user_id": user_id, "plan": plan, "active": True}
-    ).execute()
+    try:
+        await client.table("subscriptions").update({"active": False}).eq("user_id", user_id).execute()
+    except Exception as e:
+        logger.warning("create_subscription: update active=False gagal uid=%s: %s (column mungkin tiada)", user_id, e)
+    try:
+        await client.table("subscriptions").insert(
+            {"user_id": user_id, "plan": plan, "active": True}
+        ).execute()
+    except Exception as e:
+        # Column 'active' mungkin tiada — insert tanpa active
+        logger.warning("create_subscription: insert dengan active gagal uid=%s: %s — cuba tanpa active", user_id, e)
+        await client.table("subscriptions").insert(
+            {"user_id": user_id, "plan": plan}
+        ).execute()
+    logger.info("create_subscription: uid=%s plan=%s berjaya disimpan", user_id, plan)
 
 
 # ─────────────────────────────────────────────

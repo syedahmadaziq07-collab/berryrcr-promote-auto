@@ -106,6 +106,59 @@ async def check_tables():
     except Exception as e:
         issues.append(f"userbots: {e}")
 
+    # ── Semak subscriptions table (KRITIKAL untuk pelan PLUS/PRO/PREMIUM) ──
+    # Semak menggunakan select("user_id,plan") sahaja — column paling asas
+    sub_ok = False
+    try:
+        await client.table("subscriptions").select("user_id,plan").limit(1).execute()
+        sub_ok = True
+        logger.info("Table subscriptions (user_id,plan) — OK")
+    except Exception as e:
+        issues.append(f"subscriptions [table]: {e}")
+
+    # Semak column active berasingan — mungkin tidak wujud pada schema lama
+    if sub_ok:
+        try:
+            await client.table("subscriptions").select("active").limit(1).execute()
+            logger.info("Table subscriptions (active column) — OK")
+        except Exception:
+            issues.append("subscriptions [active column]")
+            logger.error(
+                "=" * 60 + "\n"
+                "KRITIKAL: Column 'active' TIADA dalam table subscriptions!\n"
+                "Jalankan SQL ini dalam Supabase SQL Editor:\n"
+                "https://supabase.com/dashboard/project/ymlofdqtmsfftnuskgbq/sql\n\n"
+                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active     BOOLEAN DEFAULT TRUE;\n"
+                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();\n"
+                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;\n\n"
+                "  -- Kemaskini rekod lama supaya active = TRUE\n"
+                "  UPDATE subscriptions SET active = TRUE WHERE active IS NULL;\n"
+                + "=" * 60
+            )
+    else:
+        logger.error(
+            "=" * 60 + "\n"
+            "KRITIKAL: Table 'subscriptions' TIDAK WUJUD!\n"
+            "Jalankan SQL ini dalam Supabase SQL Editor:\n"
+            "https://supabase.com/dashboard/project/ymlofdqtmsfftnuskgbq/sql\n\n"
+            "  CREATE TABLE IF NOT EXISTS subscriptions (\n"
+            "    id         BIGSERIAL PRIMARY KEY,\n"
+            "    user_id    BIGINT,\n"
+            "    plan       TEXT NOT NULL,\n"
+            "    active     BOOLEAN DEFAULT TRUE,\n"
+            "    created_at TIMESTAMPTZ DEFAULT NOW(),\n"
+            "    expires_at TIMESTAMPTZ\n"
+            "  );\n"
+            + "=" * 60
+        )
+
+    # ── Semak wallets table ──
+    try:
+        await client.table("wallets").select("user_id").limit(1).execute()
+        logger.info("Table wallets — OK")
+    except Exception as e:
+        issues.append(f"wallets: {e}")
+
     # ── Jika ada isu, cetak SQL penuh ──
     if issues:
         logger.error("=" * 60)

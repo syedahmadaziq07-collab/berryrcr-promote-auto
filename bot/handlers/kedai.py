@@ -10,10 +10,11 @@ from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import database as db
-from config import ADMIN_ID, USERBOT_PRICE, WEBSITE_URL
+from config import ADMIN_ID, USERBOT_PRICE, WEBSITE_URL, COIN_PLANS
 from keyboards import (
     kedai_menu_kb,
-    beli_userbot_confirm_reply_kb,
+    beli_userbot_plans_kb,
+    beli_userbot_confirm_kb,
     main_menu_kb,
     topup_packages_inline_kb,
     topup_order_summary_kb,
@@ -37,7 +38,7 @@ class TopupFSM(StatesGroup):
 
 
 class BeliUserbotFSM(StatesGroup):
-    waiting_confirm = State()
+    pass   # Tidak digunakan lagi — flow kini sepenuhnya inline callback
 
 
 class SendCoinsFSM(StatesGroup):
@@ -88,11 +89,10 @@ async def _kedai_text(uid: int) -> str:
 # ⬅️ KEMBALI — dari FSM state → balik ke Kedai
 # ─────────────────────────────────────────────
 
-@router.message(TopupFSM.waiting_receipt,       F.text == "⬅️ Kembali")
-@router.message(BeliUserbotFSM.waiting_confirm, F.text == "⬅️ Kembali")
-@router.message(SendCoinsFSM.waiting_target,    F.text == "⬅️ Kembali")
-@router.message(SendCoinsFSM.waiting_amount,    F.text == "⬅️ Kembali")
-@router.message(GiftUserbotFSM.waiting_target,  F.text == "⬅️ Kembali")
+@router.message(TopupFSM.waiting_receipt,     F.text == "⬅️ Kembali")
+@router.message(SendCoinsFSM.waiting_target,  F.text == "⬅️ Kembali")
+@router.message(SendCoinsFSM.waiting_amount,  F.text == "⬅️ Kembali")
+@router.message(GiftUserbotFSM.waiting_target, F.text == "⬅️ Kembali")
 async def cancel_kedai_fsm(message: Message, state: FSMContext):
     await state.clear()
     text = await _kedai_text(message.from_user.id)
@@ -433,21 +433,25 @@ async def cb_topup_cancel(callback: CallbackQuery, state: FSMContext):
 
 
 # ─────────────────────────────────────────────
-# 🛍 BELI USERBOT
+# 🛍 BELI USERBOT — Langkah 1: Papar Pilihan Pelan
 # ─────────────────────────────────────────────
 
 @router.message(F.text == "🛍 Beli Userbot")
 async def msg_beli_userbot(message: Message, state: FSMContext):
     await state.clear()
     uid         = message.from_user.id
-    balance     = await db.get_wallet(uid)
-    userbot_rec = await db.get_userbot(uid)   # canonical source — userbots table
+    userbot_rec = await db.get_userbot(uid)
+
+    logger.info("beli_userbot: open menu uid=%s has_userbot=%s", uid, bool(userbot_rec))
 
     if userbot_rec:
-        ub_id = userbot_rec.get("userbot_id", "")
+        ub_id  = userbot_rec.get("userbot_id", "")
+        sub    = await db.get_active_subscription(uid)
+        plan   = sub["plan"] if sub else "Tiada"
         await message.answer(
             "🤖 *Anda Sudah Mempunyai Userbot*\n\n"
-            f"ID Userbot anda: `{ub_id}`\n\n"
+            f"🆔 ID Userbot: `{ub_id}`\n"
+            f"📋 Pelan Aktif: *{plan}*\n\n"
             "Setiap akaun hanya boleh mempunyai satu userbot.\n"
             "Gunakan menu *📚 Buat Userbot* untuk urus userbot anda.",
             parse_mode="Markdown",
@@ -455,39 +459,139 @@ async def msg_beli_userbot(message: Message, state: FSMContext):
         )
         return
 
+    balance = await db.get_wallet(uid)
     text = (
         "🛍 *Beli Userbot*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"Kos: *{USERBOT_PRICE} Syiling*\n"
-        f"Baki anda: *{balance:,} Syiling*\n\n"
-        "Selepas beli, sistem akan hasilkan *ID Userbot* unik untuk anda.\n"
-        "ID ini boleh digunakan untuk pindah userbot ke akaun lain.\n\n"
-        "Adakah anda ingin meneruskan?"
+        f"💰 Baki anda: *{balance:,} Syiling*\n\n"
+        "Pilih pelan yang sesuai:\n\n"
+        "⭐ *PLUS — 300 Syiling (RM3)*\n"
+        "• Auto promote ke kumpulan pilihan\n"
+        "• Footer wajib @berryrcr\n\n"
+        "🔥 *PRO — 600 Syiling (RM6)*\n"
+        "• Auto promote ke kumpulan pilihan\n"
+        "• Boleh tutup footer\n"
+        "• Keutamaan sokongan\n\n"
+        "💎 *PREMIUM — 1,000 Syiling (RM10)*\n"
+        "• Auto promote ke kumpulan pilihan\n"
+        "• Boleh tutup footer\n"
+        "• Sokongan VIP 24/7\n"
+        "• Keutamaan tertinggi"
     )
-    await message.answer(text, parse_mode="Markdown", reply_markup=beli_userbot_confirm_reply_kb())
-    await state.set_state(BeliUserbotFSM.waiting_confirm)
+    await message.answer(text, parse_mode="Markdown", reply_markup=beli_userbot_plans_kb())
 
 
-@router.message(BeliUserbotFSM.waiting_confirm, F.text == "✅ Ya, Beli Userbot")
-async def process_confirm_beli_userbot(message: Message, state: FSMContext):
-    uid = message.from_user.id
-    await state.clear()
+# ─────────────────────────────────────────────
+# 🛍 BELI USERBOT — Langkah 2: Pilih Pelan → Konfirmasi
+# ─────────────────────────────────────────────
 
-    if USERBOT_PRICE > 0:
-        ok = await db.deduct_coins(uid, USERBOT_PRICE, "Beli Userbot")
-        if not ok:
-            balance = await db.get_wallet(uid)
-            await message.answer(
-                f"⚠️ *Baki tidak mencukupi!*\n\n"
-                f"Kos: *{USERBOT_PRICE} Syiling*\n"
-                f"Baki anda: *{balance:,} Syiling*\n\n"
-                "Topup syiling dahulu melalui 💳 Topup Syiling.",
-                parse_mode="Markdown",
-                reply_markup=kedai_menu_kb(),
-            )
-            return
+@router.callback_query(F.data.startswith("buy_plan_select:"))
+async def cb_buy_plan_select(callback: CallbackQuery):
+    await callback.answer()
+    uid      = callback.from_user.id
+    plan_key = callback.data.split(":")[1].upper()
 
+    logger.info("buy_plan_select: uid=%s plan=%s", uid, plan_key)
+
+    if plan_key not in COIN_PLANS:
+        await callback.answer("⚠️ Pelan tidak sah.", show_alert=True)
+        return
+
+    plan    = COIN_PLANS[plan_key]
+    balance = await db.get_wallet(uid)
+    total   = plan["coins"]
+
+    cukup_icon = "✅" if balance >= total else "❌"
+    baki_selepas = balance - total if balance >= total else 0
+
+    features_txt = "\n".join(f"  • {f}" for f in plan["features"])
+    text = (
+        f"📋 *Sahkan Pembelian Userbot + Pelan*\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"Pelan: *{plan['name']}*\n"
+        f"Harga: *{total:,} Syiling* (RM{plan['price_rm']:.2f})\n\n"
+        f"*Ciri-ciri:*\n{features_txt}\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"💰 Baki semasa: *{balance:,} Syiling*\n"
+        f"💸 Kos: *{total:,} Syiling*\n"
+        f"{cukup_icon} Baki selepas: *{baki_selepas:,} Syiling*\n\n"
+    )
+    if balance < total:
+        text += (
+            "⚠️ *Baki tidak mencukupi!*\n"
+            f"Perlu tambah lagi *{total - balance:,} Syiling*.\n"
+            "Topup melalui 💳 Topup Syiling."
+        )
+        await callback.message.edit_text(
+            text, parse_mode="Markdown",
+            reply_markup=beli_userbot_plans_kb(),
+        )
+        return
+
+    text += "Tekan *Ya, Beli Sekarang* untuk teruskan."
+    await callback.message.edit_text(
+        text, parse_mode="Markdown",
+        reply_markup=beli_userbot_confirm_kb(plan_key),
+    )
+
+
+# ─────────────────────────────────────────────
+# 🛍 BELI USERBOT — Langkah 3: Konfirm → Proses Bayaran
+# ─────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("buy_plan_confirm:"))
+async def cb_buy_plan_confirm(callback: CallbackQuery):
+    await callback.answer("⏳ Memproses...")
+    uid      = callback.from_user.id
+    plan_key = callback.data.split(":")[1].upper()
+
+    logger.info("buy_plan_confirm: uid=%s plan=%s — mula proses", uid, plan_key)
+
+    if plan_key not in COIN_PLANS:
+        await callback.message.edit_text(
+            "⚠️ Pelan tidak sah. Sila cuba lagi.",
+            reply_markup=None,
+        )
+        return
+
+    plan = COIN_PLANS[plan_key]
+    total = plan["coins"]
+
+    # Semak lagi jika sudah ada userbot (elak double-tap)
+    existing = await db.get_userbot(uid)
+    if existing:
+        logger.warning("buy_plan_confirm: uid=%s sudah ada userbot — abaikan", uid)
+        await callback.message.edit_text(
+            f"⚠️ Anda sudah mempunyai userbot.\n\nID: `{existing['userbot_id']}`",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Tolak syiling
+    logger.info("buy_plan_confirm: uid=%s deduct %d coins untuk %s", uid, total, plan_key)
+    ok = await db.deduct_coins(uid, total, f"Beli Userbot + Pelan {plan['name']}")
+    if not ok:
+        balance = await db.get_wallet(uid)
+        logger.warning("buy_plan_confirm: uid=%s baki tidak cukup — ada %d perlu %d", uid, balance, total)
+        await callback.message.edit_text(
+            f"⚠️ *Baki tidak mencukupi!*\n\n"
+            f"Perlu: *{total:,} Syiling*\n"
+            f"Baki: *{balance:,} Syiling*\n\n"
+            "Topup dahulu melalui 💳 Topup Syiling.",
+            parse_mode="Markdown",
+            reply_markup=None,
+        )
+        return
+
+    # Jana Userbot ID
+    logger.info("buy_plan_confirm: uid=%s jana userbot_id", uid)
     userbot_id = await db.create_userbot(uid)
+    logger.info("buy_plan_confirm: uid=%s userbot_id=%s", uid, userbot_id)
+
+    # Aktifkan Pelan
+    logger.info("buy_plan_confirm: uid=%s aktifkan pelan %s", uid, plan_key)
+    await db.create_subscription(uid, plan_key)
+    logger.info("buy_plan_confirm: uid=%s subscription PLUS/PRO/PREMIUM aktif", uid)
 
     # Kemaskini sessions.userbot_id jika session sudah wujud
     try:
@@ -500,23 +604,75 @@ async def process_confirm_beli_userbot(message: Message, state: FSMContext):
                 tg_username=session.get("tg_username", ""),
                 userbot_id=userbot_id,
             )
-            logger.info("beli_userbot: sessions.userbot_id dikemaskini uid=%s ub_id=%s", uid, userbot_id)
+            logger.info("buy_plan_confirm: sessions.userbot_id dikemaskini uid=%s", uid)
     except Exception as e:
-        logger.warning("beli_userbot: update sessions.userbot_id gagal uid=%s: %s", uid, e)
+        logger.warning("buy_plan_confirm: update sessions.userbot_id gagal uid=%s: %s", uid, e)
 
-    await message.answer(
-        "✅ *Userbot Berjaya Dicipta!*\n"
+    logger.info("buy_plan_confirm: uid=%s BERJAYA — userbot_id=%s plan=%s", uid, userbot_id, plan_key)
+
+    await callback.message.edit_text(
+        "✅ *Pembelian Berjaya!*\n"
         "━━━━━━━━━━━━━━━\n\n"
         f"🤖 ID Userbot anda:\n`{userbot_id}`\n\n"
-        "⚠️ *Simpan ID ini dengan baik!*\n"
-        "ID ini boleh digunakan untuk memindahkan userbot ke akaun lain.\n\n"
+        f"📋 Pelan Aktif: *{plan['name']}*\n\n"
+        "⚠️ *Simpan ID Userbot ini!*\n"
+        "ID ini digunakan untuk pindah userbot jika akaun anda limit/banned.\n\n"
+        "━━━━━━━━━━━━━━━\n"
         "Langkah seterusnya:\n"
-        "• Aktifkan pelan PLUS atau PRO\n"
-        "• Sambungkan akaun Telegram\n\n"
-        "Guna menu *📚 Buat Userbot* untuk langkah seterusnya.",
+        "1️⃣ Tekan *📚 Buat Userbot* untuk sambung akaun Telegram\n"
+        "2️⃣ Pilih kumpulan & tetapkan mesej dalam *⚙️ Tetapan*\n"
+        "3️⃣ Tekan 🚀 Mula Promote!",
         parse_mode="Markdown",
+        reply_markup=None,
+    )
+    # Hantar keyboard reply semula
+    await callback.message.answer(
+        "🛒 Kembali ke Kedai:",
         reply_markup=kedai_menu_kb(),
     )
+
+
+# ─────────────────────────────────────────────
+# 🛍 BELI USERBOT — Batal / Kembali ke senarai pelan
+# ─────────────────────────────────────────────
+
+@router.callback_query(F.data == "beli_userbot_cancel")
+async def cb_beli_userbot_cancel(callback: CallbackQuery):
+    await callback.answer("❌ Dibatalkan.")
+    uid = callback.from_user.id
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    text = await _kedai_text(uid)
+    await callback.message.answer(text, parse_mode="Markdown", reply_markup=kedai_menu_kb())
+
+
+@router.callback_query(F.data == "beli_userbot_back")
+async def cb_beli_userbot_back(callback: CallbackQuery):
+    await callback.answer()
+    uid     = callback.from_user.id
+    balance = await db.get_wallet(uid)
+    logger.info("beli_userbot_back: uid=%s kembali ke senarai pelan", uid)
+    text = (
+        "🛍 *Beli Userbot*\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"💰 Baki anda: *{balance:,} Syiling*\n\n"
+        "Pilih pelan yang sesuai:\n\n"
+        "⭐ *PLUS — 300 Syiling (RM3)*\n"
+        "• Auto promote ke kumpulan pilihan\n"
+        "• Footer wajib @berryrcr\n\n"
+        "🔥 *PRO — 600 Syiling (RM6)*\n"
+        "• Auto promote ke kumpulan pilihan\n"
+        "• Boleh tutup footer\n"
+        "• Keutamaan sokongan\n\n"
+        "💎 *PREMIUM — 1,000 Syiling (RM10)*\n"
+        "• Auto promote ke kumpulan pilihan\n"
+        "• Boleh tutup footer\n"
+        "• Sokongan VIP 24/7\n"
+        "• Keutamaan tertinggi"
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=beli_userbot_plans_kb())
 
 
 # ─────────────────────────────────────────────
