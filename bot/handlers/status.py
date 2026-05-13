@@ -1,4 +1,5 @@
 import logging
+from datetime import timezone
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 import database as db
@@ -11,71 +12,127 @@ logger = logging.getLogger(__name__)
 
 async def _build_status_text(uid: int) -> str:
     sub      = await db.get_active_subscription(uid)
-    wallet   = await db.get_wallet(uid)
     session  = await db.get_session(uid)
     groups   = await db.get_selected_groups(uid)
     settings = await db.get_promo_settings(uid)
     userbot  = await db.get_userbot(uid)
 
-    nama      = "Tiada"
-    nombor    = "Tiada"
-    ub_id     = "Tiada"
-    acc_status = "⚫ Belum Disambungkan"
+    ub_id = "Not Set"
+    acc_health = "⚫ Belum Connect"
 
     if session:
-        tg_user = session.get("tg_username", "")
-        phone   = session.get("phone_number", "")
-        ub_id   = session.get("userbot_id", "") or (userbot["userbot_id"] if userbot else "Tiada")
-        nama    = f"@{tg_user}" if tg_user else "Tiada"
-        nombor  = phone or "Tiada"
-
+        ub_id = session.get("userbot_id", "") or (userbot["userbot_id"] if userbot else "Not Set")
         health = await check_account_health(session.get("session_string", ""))
         if health == "aktif":
-            acc_status = "🟢 Aktif"
+            acc_health = "🟢 Active"
         elif health == "flood":
-            acc_status = "⚠️ FloodWait — Tunggu sebentar"
+            acc_health = "⚠️ FloodWait"
         elif health == "banned":
-            acc_status = "🔴 Dihadkan / Diblok"
+            acc_health = "🔴 Banned / Restricted"
         elif health == "sesi_tamat":
-            acc_status = "🔴 Sesi Tamat — Sila log masuk semula"
+            acc_health = "🔴 Session Expired"
         else:
-            acc_status = "🔴 Ralat Tidak Diketahui"
+            acc_health = "🔴 Unknown Error"
 
+    # ── Delay & promote status ──
     if settings:
-        is_running  = settings.get("is_running", False)
-        delay       = settings.get("delay_minutes", 60)
-        hours       = delay // 60
-        mins        = delay % 60
-        delay_str   = f"{hours}j {mins}m" if hours > 0 else f"{mins}m"
+        is_running = settings.get("is_running", False)
+        delay      = settings.get("delay_minutes", 60)
+        hours      = delay // 60
+        mins       = delay % 60
+        delay_str  = f"{hours}j {mins}m" if hours > 0 else f"{mins}m"
     else:
         is_running = False
-        delay_str  = "Tiada"
+        delay_str  = "Not Set"
 
-    promote_status = "🟢 Sedang Berjalan" if is_running else "🔴 Berhenti"
+    bot_status = "Running Smooth 🚀" if is_running else "Standby 💤"
 
-    plan_name = sub["plan"] if sub else "Tiada"
+    # ── Auto Timer (schedule) ──
+    auto_timer = "None"
+    if ub_id and ub_id != "Not Set":
+        try:
+            sched = await db.get_schedule(ub_id)
+            if sched and sched.get("aktif"):
+                mula  = sched.get("waktu_mula", "?")
+                tamat = sched.get("waktu_tamat", "?")
+                auto_timer = f"{mula} – {tamat}"
+        except Exception:
+            pass
+
+    # ── Auto Reply count ──
+    auto_reply_count = 0
+    if ub_id and ub_id != "Not Set":
+        try:
+            ar_channels = await db.get_autoreply_channels(ub_id)
+            auto_reply_count = len(ar_channels)
+        except Exception:
+            pass
+
+    # ── Channel vs Group count ──
+    channel_count = sum(1 for g in groups if g.get("target_type") == "channel")
+    group_count   = len(groups)
+
+    # ── Expert mode ──
+    expert_on    = await db.get_expert_mode(uid)
+    mode_label   = "Lanjutan 🧠" if expert_on else "Normal"
+
+    # ── Notification ──
+    notif_aktif  = await db.get_notif_status(uid)
+    notif_label  = "ON - Send To Me 📩" if notif_aktif else "OFF"
+
+    # ── Backup Email ──
+    email = None
+    try:
+        email = await db.get_backup_email(uid)
+    except Exception:
+        pass
+    email_label = email if email else "Not Set"
+
+    # ── Subscription expiry ──
+    expired_str = "No Active Plan"
+    if sub:
+        exp = sub.get("expired_at")
+        if exp:
+            try:
+                if hasattr(exp, "strftime"):
+                    expired_str = exp.strftime("%H:%M, %d %b %Y")
+                else:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                    local = dt.astimezone()
+                    expired_str = local.strftime("%H:%M, %d %b %Y")
+            except Exception:
+                expired_str = str(exp)
 
     return (
-        "📋 *STATUS AKAUN*\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 Nama        : {nama}\n"
-        f"📱 Nombor      : `{nombor}`\n"
-        f"🤖 ID Userbot  : `{ub_id}`\n"
-        f"📋 Pelan       : *{plan_name}*\n"
-        f"💰 Baki        : *{wallet:,} Syiling*\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔌 Akaun       : {acc_status}\n"
-        f"📊 Promote     : {promote_status}\n"
-        f"👥 Kumpulan    : *{len(groups)} dipilih*\n"
-        f"⏸️ Jarak Masa  : *{delay_str}*\n"
-        "━━━━━━━━━━━━━━━━━━━━"
+        f"🪪 *STATUS ACCOUNT*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🪪 ID Korang: `{ub_id}`\n"
+        f"\n"
+        f"⌛ Delay Send: *{delay_str}*\n"
+        f"🧠 Auto Timer: {auto_timer}\n"
+        f"💬 Auto Reply: {auto_reply_count}\n"
+        f"📡 Channel Active: {channel_count}\n"
+        f"✨ Extra Feature: 0\n"
+        f"👥 Group Joined: {group_count}\n"
+        f"🗂️ Saved List: {group_count}\n"
+        f"\n"
+        f"🦾 Mode Sekarang: {mode_label}\n"
+        f"🛡️ Safe Mode: ON\n"
+        f"🚦 Status Bot: {bot_status}\n"
+        f"⏳ Expired On: {expired_str}\n"
+        f"📣 Notification: {notif_label}\n"
+        f"📩 Backup Email: {email_label}\n"
+        f"🧑‍💻 Admin Backup: 0\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔌 Account Health: {acc_health}"
     )
 
 
 @router.message(F.text == "📊 Status")
 async def msg_status(message: Message):
     uid = message.from_user.id
-    wait = await message.answer("⏳ Menyemak status akaun...")
+    wait = await message.answer("⏳ Loading Status Account...")
     text = await _build_status_text(uid)
     await wait.delete()
     await message.answer(text, parse_mode="Markdown", reply_markup=back_to_menu_kb())
@@ -85,6 +142,6 @@ async def msg_status(message: Message):
 async def cb_status(callback: CallbackQuery):
     await callback.answer()
     uid = callback.from_user.id
-    await callback.message.edit_text("⏳ Menyemak status akaun...")
+    await callback.message.edit_text("⏳ Loading Status Account...")
     text = await _build_status_text(uid)
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=back_to_menu_kb())

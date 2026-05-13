@@ -483,7 +483,7 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
                     f"• Akaun dihadkan Telegram\n"
                     f"• Dikeluarkan dari kumpulan\n"
                     f"• Sesi userbot tamat\n\n"
-                    f"Semak status akaun melalui 📚 Buat Userbot.",
+                    f"Semak Status Account melalui 📚 Buat Userbot.",
                 )
 
     except Exception as e:

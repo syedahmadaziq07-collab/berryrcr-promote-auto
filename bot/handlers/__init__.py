@@ -22,7 +22,7 @@ all_routers = [
     kedai_router,           # 🛒 Kedai + semua transaksi
     buat_userbot_router,    # 📚 Buat Userbot + aktif pelan
     account_router,         # 🔑 Log Masuk Token (FSM OTP)
-    status_router,          # 📋 Status Akaun (Telethon health check)
+    status_router,          # 🪪 Status Account
     groups_router,          # 👥 Urus Kumpulan (view/add/remove/clear)
     messages_router,        # 📋 Senarai Mesej Sebarkan
     autoreply_router,       # 🤖 Balas Automatik

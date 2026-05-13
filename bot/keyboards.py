@@ -152,7 +152,7 @@ def tetapan_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⏱️ Jarak Masa",          callback_data="set_delay"),
         ],
         [
-            InlineKeyboardButton(text="📋 Status Akaun",        callback_data="status"),
+            InlineKeyboardButton(text="🪪 Status Account",       callback_data="status"),
             InlineKeyboardButton(text="🤖 Balas Auto",          callback_data="autoreply_menu"),
         ],
         [
