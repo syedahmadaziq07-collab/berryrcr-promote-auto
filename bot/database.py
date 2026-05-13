@@ -18,7 +18,7 @@ CREATE TABLE userbots (
 import logging
 import string
 import random
-from datetime import timezone, timedelta
+from datetime import timezone, timedelta, datetime
 from services.supabase_service import get_client
 
 logger = logging.getLogger(__name__)
@@ -399,9 +399,86 @@ async def transfer_userbot(userbot_id: str, new_owner_id: int):
 # LEADERBOARD
 # ─────────────────────────────────────────────
 
+_LEADERBOARD_MIGRATION_PRINTED = False
+_LEADERBOARD_PERIODS_TABLE = "leaderboard_periods"
+
+_LEADERBOARD_MIGRATION_SQL = """
+-- ─────────────────────────────────────────────
+-- MIGRATION: Leaderboard Monthly Reset
+-- Jalankan dalam Supabase SQL Editor:
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS leaderboard_periods (
+  id         BIGSERIAL PRIMARY KEY,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reset_by   TEXT DEFAULT 'auto',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+-- Seed rekod pertama (tempoh semasa)
+INSERT INTO leaderboard_periods (started_at, reset_by)
+SELECT NOW(), 'initial'
+WHERE NOT EXISTS (SELECT 1 FROM leaderboard_periods LIMIT 1);
+-- ─────────────────────────────────────────────
+"""
+
+
+async def get_leaderboard_period_start() -> datetime | None:
+    """Dapatkan masa mula tempoh leaderboard semasa dari DB.
+    Return None jika table belum wujud (fallback ke all-time).
+    """
+    global _LEADERBOARD_MIGRATION_PRINTED
+    try:
+        client = await get_client()
+        res = (
+            await client.table(_LEADERBOARD_PERIODS_TABLE)
+            .select("started_at")
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            raw = res.data[0]["started_at"]
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return None
+    except Exception as e:
+        if not _LEADERBOARD_MIGRATION_PRINTED:
+            _LEADERBOARD_MIGRATION_PRINTED = True
+            logger.warning(
+                "[LEADERBOARD] Table '%s' belum wujud — papar all-time leaderboard.\n"
+                "Jalankan SQL migration berikut untuk aktifkan reset bulanan:\n%s",
+                _LEADERBOARD_PERIODS_TABLE,
+                _LEADERBOARD_MIGRATION_SQL,
+            )
+        return None
+
+
+async def reset_leaderboard_period(reset_by: str = "auto") -> bool:
+    """Mulakan tempoh leaderboard baru (reset).
+    Insert baris baru ke leaderboard_periods.
+    Return True jika berjaya.
+    """
+    try:
+        client = await get_client()
+        await client.table(_LEADERBOARD_PERIODS_TABLE).insert(
+            {"started_at": datetime.now(timezone.utc).isoformat(), "reset_by": reset_by}
+        ).execute()
+        logger.info("[LEADERBOARD] reset_leaderboard_period berjaya — reset_by=%s", reset_by)
+        return True
+    except Exception as e:
+        logger.error("[LEADERBOARD] reset_leaderboard_period gagal: %s", e)
+        return False
+
+
 async def get_leaderboard(limit: int = 10) -> list:
     client = await get_client()
-    res = await client.table("transactions").select("user_id, amount").eq("type", "debit").execute()
+
+    # Cuba dapatkan masa mula tempoh semasa (monthly reset support)
+    period_start = await get_leaderboard_period_start()
+
+    query = client.table("transactions").select("user_id, amount").eq("type", "debit")
+    if period_start:
+        query = query.gte("created_at", period_start.isoformat())
+
+    res = await query.execute()
     totals: dict = {}
     for row in (res.data or []):
         uid = row["user_id"]

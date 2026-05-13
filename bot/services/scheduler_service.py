@@ -1,8 +1,10 @@
 import asyncio
 import logging
 from datetime import datetime
+import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import InputPeerChannel, InputPeerChat
@@ -490,6 +492,75 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
         logger.error("[PROMO] Ralat tidak dijangka uid=%s: %s", user_id, e, exc_info=True)
 
 
+_MY_TZ = pytz.timezone("Asia/Kuala_Lumpur")
+_LEADERBOARD_RESET_JOB_ID = "leaderboard_monthly_reset"
+
+
+async def _run_monthly_leaderboard_reset():
+    """Job bulanan: reset leaderboard pada 1 haribulan, 00:00 waktu Malaysia."""
+    logger.info("[LEADERBOARD] leaderboard_reset_started")
+    try:
+        # Kira jumlah user aktif dalam leaderboard semasa (untuk log)
+        leaders = await db.get_leaderboard(limit=999)
+        total_users = len(leaders)
+        logger.info("[LEADERBOARD] total_users_reset=%d", total_users)
+
+        # Reset: mulakan tempoh baru
+        success = await db.reset_leaderboard_period(reset_by="auto_monthly")
+
+        if success:
+            logger.info("[LEADERBOARD] leaderboard_reset_success | total_users_reset=%d", total_users)
+            # Notify admin
+            if _bot_instance:
+                import pytz as _pytz
+                from datetime import datetime as _dt
+                from config import ADMIN_ID
+                masa = _dt.now(_MY_TZ).strftime("%d/%m/%Y %H:%M")
+                try:
+                    await _bot_instance.send_message(
+                        ADMIN_ID,
+                        f"🔄 *Leaderboard Bulanan Direset!*\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"• Tarikh: {masa} (MY)\n"
+                        f"• Pengguna terjejas: *{total_users}* orang\n"
+                        f"• Status: ✅ Berjaya\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"Tempoh baru bermula sekarang.",
+                        parse_mode="Markdown",
+                    )
+                except Exception as e:
+                    logger.warning("[LEADERBOARD] gagal notify admin: %s", e)
+        else:
+            logger.error("[LEADERBOARD] leaderboard_reset_failed | total_users_reset=%d", total_users)
+
+    except Exception as e:
+        logger.error("[LEADERBOARD] leaderboard_reset_failed | ralat: %s", e, exc_info=True)
+
+
+def register_leaderboard_reset_job():
+    """Daftarkan atau pulihkan job reset leaderboard bulanan.
+    Dipanggil pada setiap bot startup — selamat untuk dipanggil berulang kali.
+    """
+    if scheduler.get_job(_LEADERBOARD_RESET_JOB_ID):
+        scheduler.remove_job(_LEADERBOARD_RESET_JOB_ID)
+
+    trigger = CronTrigger(
+        day=1, hour=0, minute=0, second=0,
+        timezone=_MY_TZ,
+    )
+    scheduler.add_job(
+        _run_monthly_leaderboard_reset,
+        trigger=trigger,
+        id=_LEADERBOARD_RESET_JOB_ID,
+        name="Leaderboard Monthly Reset",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    logger.info(
+        "[LEADERBOARD] Job reset bulanan didaftarkan — setiap 1 haribulan, 00:00 MY"
+    )
+
+
 async def restore_running_promos():
     running = await db.get_all_running_promos()
     count = 0
@@ -528,3 +599,4 @@ def start_scheduler():
     if not scheduler.running:
         scheduler.start()
         logger.info("[PROMO] APScheduler dimulakan")
+    register_leaderboard_reset_job()
