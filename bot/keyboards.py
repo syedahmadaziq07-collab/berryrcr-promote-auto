@@ -313,6 +313,25 @@ def groups_selection_kb(groups: list, selected_ids: set) -> InlineKeyboardMarkup
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def delay_timer_kb(current: int = 0) -> InlineKeyboardMarkup:
+    """Grid butang timer 5m–300m, gandaan 5 minit, 6 butang setiap baris."""
+    buttons = []
+    row = []
+    for m in range(5, 305, 5):
+        label = f"✅ {m}m" if m == current else f"{m}m"
+        row.append(InlineKeyboardButton(
+            text=label,
+            callback_data=f"delay_set:{m}",
+        ))
+        if len(row) == 6:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="⬅️ Kembali", callback_data="set_delay_back")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Batal", callback_data="main_menu")],

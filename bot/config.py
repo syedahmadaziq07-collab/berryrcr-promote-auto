@@ -66,7 +66,7 @@ USERBOT_PRICE = 0
 
 WEBSITE_URL = "https://t.me/berryrcr"
 
-MIN_DELAY_MINUTES = 30
+MIN_DELAY_MINUTES = 5
 
 MANDATORY_FOOTER = (
     "\n\n━━━━━━━━━━━━━━\n"
