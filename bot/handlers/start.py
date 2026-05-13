@@ -11,27 +11,48 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 WELCOME_MESSAGE = """
-🤖 *Selamat datang ke Promote Auto by @berryrcr!*
+🤖 *Welcome to Promote Auto by @berryrcr\\_bot*
+━━━━━━━━━━━━━━━
 
-Platform ini membantu anda mengurus auto promote Telegram menggunakan akaun anda sendiri.
+⚡ *Quick Start Guide*
 
-*Cara guna:*
-
-1️⃣ Topup Syiling melalui menu *Kedai*
-2️⃣ Beli Userbot untuk dapatkan ID Userbot anda
-3️⃣ Aktifkan pelan *PLUS* atau *PRO*
-4️⃣ Sambungkan akaun Telegram anda
-5️⃣ Pilih kumpulan yang anda sudah sertai
-6️⃣ Tetapkan mesej & jarak masa
+1️⃣ Topup syiling dekat 🛒 Kedai
+2️⃣ Buy Userbot untuk unlock system
+3️⃣ Activate plan FREE TRIAL / PLUS / PRO
+4️⃣ Connect akaun Telegram korang
+5️⃣ Pick group/channel korang sendiri
+6️⃣ Setup promote message \\+ timer
 7️⃣ Tekan 🚀 Mula Promote
 
-⚠️ *Nota:*
-• Userbot dan pelan langganan ialah dua perkara berbeza
-• ID Userbot boleh digunakan untuk pindah akses ke akaun lain
-• Bot hanya hantar ke kumpulan yang anda pilih sendiri
-• Bot tidak auto join atau scrape kumpulan rawak
+Done\\. Bot akan jalan auto 💨
 
-Sila pilih menu di bawah.
+━━━━━━━━━━━━━━━
+
+🧠 *Apa yang bot ni boleh buat?*
+
+• Auto promote group & channel
+• Rotate banyak mesej auto
+• Auto reply message
+• Advanced multi\\-group mode
+• Delay timer custom
+• Backup token/login recovery
+• Referral reward system
+• Status account live monitoring
+
+━━━━━━━━━━━━━━━
+
+⚠️ *Heads Up:*
+
+• Userbot & subscription plan ialah benda berbeza
+• Bot hanya send ke group/channel yang korang pilih sendiri
+• Bot TAK auto join atau scrape random group
+• Simpan ID Userbot korang untuk backup access kalau account logout/limit
+
+━━━━━━━━━━━━━━━
+
+🌐 Promote Auto by @berryrcr\\_bot
+
+Choose menu bawah 👇
 """
 
 
