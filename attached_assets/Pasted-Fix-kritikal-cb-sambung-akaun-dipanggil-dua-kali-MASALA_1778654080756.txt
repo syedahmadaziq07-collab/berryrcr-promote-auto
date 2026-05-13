@@ -1,0 +1,134 @@
+Fix kritikal — cb_sambung_akaun dipanggil dua kali.
+
+MASALAH YANG BERLAKU:
+1. "Sambung Akaun Telegram" muncul DUA kali
+2. OTP dihantar DUA kali ke nombor telefon user
+3. Selepas user masukkan OTP → "Sesi anda telah tamat"
+   bermakna FSM state tidak disimpan dengan betul
+
+PUNCA:
+cb_sambung_akaun didaftarkan atau dipanggil dua kali.
+
+TUGASAN — SEMAK DAN FIX:
+
+1. Buka handlers/__init__.py
+   Semak all_routers — pastikan buat_userbot_router
+   hanya ada SEKALI dalam senarai.
+
+2. Buka buat_userbot.py
+   Semak berapa kali decorator ini wujud:
+   @router.callback_query(F.data == "sambung_akaun")
+   Mesti ada SEKALI sahaja.
+
+3. Tambah guard dalam cb_sambung_akaun:
+   Jika state sudah waiting_phone, jangan proses semula.
+
+   @router.callback_query(F.data == "sambung_akaun")
+   async def cb_sambung_akaun(callback: CallbackQuery,
+                               state: FSMContext):
+       await callback.answer()
+       
+       # GUARD — jangan proses jika dah dalam flow
+       current = await state.get_state()
+       if current in [
+           UserbotStates.waiting_phone,
+           UserbotStates.waiting_otp,
+           UserbotStates.waiting_2fa
+       ]:
+           await callback.answer(
+               "⚠️ Anda sedang dalam proses sambung akaun.",
+               show_alert=True
+           )
+           return
+       
+       await state.set_state(UserbotStates.waiting_phone)
+       await callback.message.answer(
+           "📱 Sambung Akaun Telegram\n\n"
+           "Sila hantar nombor Telegram anda.\n"
+           "Contoh: +60123456789\n\n"
+           "Atau tekan butang 📱 Hantar Nombor di bawah.",
+           reply_markup=phone_request_keyboard()
+       )
+
+4. Fix process_phone — pastikan FSM state 
+   disimpan dalam _pending:
+
+   @router.message(UserbotStates.waiting_phone)
+   async def process_phone(message: Message,
+                            state: FSMContext):
+       try:
+           # Ambil nombor dari contact atau teks
+           if message.contact:
+               phone = message.contact.phone_number
+               if not phone.startswith("+"):
+                   phone = "+" + phone
+           else:
+               phone = message.text.strip()
+               if not phone.startswith("+"):
+                   phone = "+" + phone
+           
+           uid = message.from_user.id
+           
+           # Jangan hantar OTP jika dah ada 
+           # dalam _pending
+           if uid in _pending:
+               await _cleanup_pending(uid)
+           
+           await message.answer("⏳ Menghantar kod OTP...")
+           
+           client = TelegramClient(
+               StringSession(),
+               API_ID,
+               API_HASH
+           )
+           await client.connect()
+           
+           result = await client.send_code_request(phone)
+           
+           # Simpan dalam _pending
+           _pending[uid] = {
+               "client": client,
+               "phone": phone,
+               "phone_code_hash": result.phone_code_hash
+           }
+           
+           # Set FSM state
+           await state.set_state(UserbotStates.waiting_otp)
+           
+           await message.answer(
+               "📱 Kod OTP telah dihantar ke nombor anda.\n\n"
+               "Sila taip kod OTP anda.\n"
+               "Contoh: 12345\n\n"
+               "⚠️ Jangan kongsi kod ini dengan sesiapa.",
+               reply_markup=cancel_keyboard()
+           )
+           
+       except Exception as e:
+           print(f"process_phone error: {e}")
+           await _cleanup_pending(message.from_user.id)
+           await state.clear()
+           await message.answer(
+               "❌ Gagal menghantar kod OTP.\n"
+               "Sila semak nombor telefon dan cuba lagi."
+           )
+
+5. Semak semua import dalam buat_userbot.py:
+   from telethon import TelegramClient
+   from telethon.sessions import StringSession
+   from telethon.errors import (
+       SessionPasswordNeededError,
+       PhoneCodeInvalidError,
+       PhoneCodeExpiredError,
+       PasswordHashInvalidError
+   )
+   from config import API_ID, API_HASH
+
+6. Selepas fix, jalankan bot:
+   cd bot && python main.py
+   Tunjukkan log untuk sahkan tiada error.
+
+PENTING:
+- Jangan ubah flow lain
+- Jangan buat laman web / API
+- Semua teks Bahasa Melayu Malaysia
+- Tunjukkan fail yang diubah sahaja

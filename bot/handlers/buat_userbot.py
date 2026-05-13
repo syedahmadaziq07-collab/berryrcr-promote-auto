@@ -140,6 +140,20 @@ async def msg_buat_userbot(message: Message, state: FSMContext):
 # Inline button "Sambung Akaun" dari dalam menu Buat Userbot
 @router.callback_query(F.data == "buat_sambung_akaun")
 async def cb_buat_sambung_akaun(callback: CallbackQuery, state: FSMContext):
+    # Guard — tolak jika sudah dalam flow untuk elak double-tap / double OTP
+    current = await state.get_state()
+    if current in (
+        BuatUserbotFSM.waiting_phone,
+        BuatUserbotFSM.waiting_otp,
+        BuatUserbotFSM.waiting_2fa,
+    ):
+        await callback.answer(
+            "⚠️ Anda sedang dalam proses sambung akaun. Sila lengkapkan atau tekan ❌ Batal.",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer()
     await state.clear()
     await callback.message.answer(
         "📱 *Sambung Akaun Telegram*\n\n"
@@ -150,7 +164,6 @@ async def cb_buat_sambung_akaun(callback: CallbackQuery, state: FSMContext):
         reply_markup=request_phone_kb(),
     )
     await state.set_state(BuatUserbotFSM.waiting_phone)
-    await callback.answer()
 
 
 # ─────────────────────────────────────────────
@@ -201,6 +214,11 @@ async def process_phone(message: Message, state: FSMContext):
             reply_markup=request_phone_kb(),
         )
         return
+
+    # Cleanup sesi lama jika ada — elak hantar OTP dua kali
+    if uid in _pending:
+        logger.info("process_phone: cleanup _pending lama uid=%s", uid)
+        await _cleanup_pending(uid)
 
     msg = await message.answer(
         "⏳ Menghantar kod OTP...",
