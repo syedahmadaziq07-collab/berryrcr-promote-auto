@@ -1,0 +1,172 @@
+Sila audit bot Telegram "Promote Auto by @berryrcr" dari mula sehingga berjaya promote. Ikut flow pengguna sebenar dan kesan semua kemungkinan error.
+
+**FLOW AUDIT LENGKAP:**
+
+1️⃣ **START BOT**
+   - Jalankan: `cd bot && python main.py`
+   - Semak bot start tanpa crash
+   - Semak connection ke Supabase
+   - Semak Telethon initialization
+   - Verify semua environment variables loaded
+
+2️⃣ **USER /start**
+   - Pengguna baru klik /start
+   - Verify data masuk table: bot_users, wallets
+   - Semak main menu reply keyboard muncul
+   - Test semua butang main menu respond
+
+3️⃣ **TOPUP SYILING**
+   - Pilih 🛒 Kedai
+   - Pilih pakej topup (300/600/900/1200/3000)
+   - Verify order summary betul
+   - Semak QR payment image keluar
+   - Upload resit (simulate)
+   - Verify data masuk table: topup_requests
+   - Simulate admin approve
+   - Verify syiling masuk table: wallets
+
+4️⃣ **BELI USERBOT**
+   - Pilih 📚 Buat Userbot
+   - Beli userbot (deduct 150 coins)
+   - Verify UB-ID generated (format: UB-{userid}-{6chars})
+   - Verify data masuk table: userbots
+   - Semak wallet balance updated
+
+5️⃣ **BELI PELAN**
+   - Pilih pelan PLUS/PRO/PREMIUM
+   - Verify subscription created
+   - Verify data masuk table: subscriptions
+   - Semak expired_at calculation betul
+
+6️⃣ **SAMBUNG AKAUN TELEGRAM (OTP FLOW)**
+   - Klik "Sambung Akaun Sekarang"
+   - Masukkan nombor telefon (+60...)
+   - Verify Telethon send_code() dipanggil
+   - Masukkan OTP code
+   - Jika ada 2FA, masukkan password
+   - **VERIFY KOLUM SESSIONS:**
+     - session_string saved
+     - tg_username saved
+     - connected_at saved
+     - userbot_id saved
+     - is_active = true
+   - Verify Telethon client connect
+   - Semak session boleh di-load semula
+
+7️⃣ **PILIH KUMPULAN**
+   - Lihat senarai kumpulan dari Telegram account
+   - Tambah kumpulan untuk promote
+   - Verify data masuk table: selected_groups
+   - Test buang kumpulan
+   - Test kosongkan semua
+
+8️⃣ **TETAPKAN MESEJ**
+   - Tambah mesej promote
+   - Verify data masuk table: group_messages
+   - Test lihat/buang/kosongkan mesej
+   - Semak format mesej saved betul
+
+9️⃣ **TETAPKAN JADUAL**
+   - Set tempoh antara hantar (minit)
+   - Verify data masuk table: schedules
+   - Semak scheduler service initialization
+
+🔟 **MULA PROMOTE**
+   - Klik ▶️ Hidupkan Promote
+   - Verify scheduler start
+   - Verify promo_settings updated (is_active = true)
+   - **TUNGGU & MONITOR:**
+     - Mesej dihantar ke kumpulan
+     - Interval timing betul
+     - Tidak ada rate limit error
+     - Tidak ada flood wait error
+     - Session tidak disconnect
+   - Semak matikan promote berfungsi
+
+---
+
+**ERROR YANG PERLU DIKESAN:**
+
+❌ **Environment Issues:**
+- BOT_TOKEN missing/invalid
+- SUPABASE_URL/KEY missing
+- API_ID/API_HASH missing
+- DATABASE_URL error
+
+❌ **Database Issues:**
+- Table tidak wujud
+- Kolum sessions incomplete (tg_username, connected_at, userbot_id, backup_email)
+- RPC function tidak wujud (add_coins, deduct_coins)
+- Foreign key constraint error
+
+❌ **Telethon Issues:**
+- Phone number format salah
+- OTP expired/invalid
+- 2FA password salah
+- Session string corrupt
+- Client disconnect tanpa sebab
+- Flood wait error
+- API rate limit exceeded
+- Phone number banned
+
+❌ **Handler Issues:**
+- Double trigger (handler dipanggil 2x)
+- Callback tidak answer()
+- FSM state confusion
+- Message duplication
+- Keyboard tidak muncul
+
+❌ **Scheduler Issues:**
+- Job tidak start
+- Job duplicate
+- Interval tidak tepat
+- Crash semasa promote
+- Memory leak
+
+❌ **Logic Issues:**
+- Syiling tidak deduct
+- Syiling tidak credit
+- Subscription tidak active
+- Group tidak tersimpan
+- Mesej tidak dihantar
+- Session tidak reconnect
+
+---
+
+**OUTPUT YANG DIPERLUKAN:**
+
+Sila keluarkan report dalam format:
+✅ PASS: [Step name] - [Details]
+❌ FAIL: [Step name] - [Error message + stack trace]
+⚠️ WARNING: [Step name] - [Potential issue]
+SUMMARY:
+
+Total steps: X
+Passed: X
+Failed: X
+Warnings: X
+
+CRITICAL ISSUES:
+
+[Issue 1 dengan file + line number]
+[Issue 2 dengan file + line number]
+
+RECOMMENDATIONS:
+
+[Fix suggestion 1]
+[Fix suggestion 2]
+
+
+---
+
+**CARA AUDIT:**
+
+1. Trace semua handler dari handlers/__init__.py
+2. Semak setiap callback query ada answer()
+3. Semak setiap FSM flow ada error handling
+4. Verify database schema match dengan query
+5. Test Telethon client lifecycle
+6. Monitor scheduler job execution
+7. Check memory usage & cleanup
+
+Jangan skip mana-mana step. Keluarkan SEMUA error yang dijumpai dengan details lengkap.
