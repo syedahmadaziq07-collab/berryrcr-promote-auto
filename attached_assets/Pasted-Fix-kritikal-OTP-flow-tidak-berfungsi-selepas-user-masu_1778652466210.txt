@@ -1,0 +1,185 @@
+Fix kritikal — OTP flow tidak berfungsi selepas user masukkan kod.
+
+MASALAH YANG BERLAKU:
+1. Bot hantar OTP berjaya
+2. User masukkan kod OTP (contoh: 5 4 3 1 3 atau 7 0 4 6 6)
+3. Bot reply "Sila gunakan menu di bawah" — SALAH
+4. FSM state tidak tangkap input OTP
+5. Bot reply berganda
+
+PUNCA YANG PERLU DISEMAK DAN DIFIX:
+
+PUNCA 1 — FSM state tidak aktif semasa tunggu OTP
+Semak dalam buat_userbot.py:
+- Pastikan selepas hantar OTP, state ditetapkan dengan betul:
+  await state.set_state(UserbotStates.waiting_otp)
+- Pastikan handler process_otp ada decorator yang betul:
+  @router.message(UserbotStates.waiting_otp)
+  async def process_otp(message: Message, state: FSMContext):
+
+PUNCA 2 — UserbotStates tidak didefinisikan dengan betul
+Semak fail states/ atau dalam buat_userbot.py:
+- Pastikan class UserbotStates(StatesGroup) ada:
+  class UserbotStates(StatesGroup):
+      waiting_phone = State()
+      waiting_otp = State()
+      waiting_2fa = State()
+
+PUNCA 3 — MemoryStorage hilang state bila bot restart
+Jika bot restart semasa user dalam OTP flow,
+state hilang dan input OTP jadi unknown message.
+Fix: Tambah semakan dalam fallback handler —
+jika user hantar nombor 5 digit, jangan reply
+"Sila gunakan menu" — sebaliknya:
+
+await message.answer(
+    "⚠️ Sesi anda telah tamat.\n"
+    "Sila mulakan semula proses sambung akaun."
+)
+
+PUNCA 4 — Handler OTP tangkap input dengan spasi
+User hantar "5 4 3 1 3" (dengan spasi) tapi
+handler expect "54313" (tanpa spasi).
+Fix: Buang spasi dari input sebelum proses:
+
+otp_code = message.text.strip().replace(" ", "")
+
+PUNCA 5 — Double reply dari fallback handler
+fallback_handler menyebabkan "Sila gunakan menu"
+muncul berganda kerana handler OTP tidak tangkap
+input dan fallback handler ambil alih.
+
+CARA FIX LENGKAP untuk process_otp:
+
+@router.message(UserbotStates.waiting_otp)
+async def process_otp(message: Message, state: FSMContext):
+    try:
+        # Buang spasi dari kod OTP
+        otp_code = message.text.strip().replace(" ", "")
+        
+        # Sahkan format — mesti nombor sahaja
+        if not otp_code.isdigit():
+            await message.answer(
+                "❌ Kod OTP tidak sah.\n"
+                "Sila masukkan nombor sahaja.\n"
+                "Contoh: 12345"
+            )
+            return
+        
+        data = await state.get_data()
+        uid = message.from_user.id
+        
+        if uid not in _pending:
+            await state.clear()
+            await message.answer(
+                "⚠️ Sesi telah tamat.\n"
+                "Sila mulakan semula proses sambung akaun."
+            )
+            return
+        
+        client = _pending[uid]["client"]
+        phone = _pending[uid]["phone"]
+        phone_code_hash = _pending[uid]["phone_code_hash"]
+        
+        await message.answer("⏳ Mengesahkan kod OTP...")
+        
+        try:
+            await client.sign_in(
+                phone=phone,
+                code=otp_code,
+                phone_code_hash=phone_code_hash
+            )
+        except SessionPasswordNeededError:
+            await state.set_state(UserbotStates.waiting_2fa)
+            await message.answer(
+                "🔐 Akaun anda mempunyai pengesahan dua langkah.\n\n"
+                "Sila masukkan kata laluan 2FA anda:"
+            )
+            return
+        except PhoneCodeInvalidError:
+            await message.answer(
+                "❌ Kod OTP tidak sah atau telah tamat tempoh.\n"
+                "Sila cuba sambung akaun semula."
+            )
+            await _cleanup_pending(uid)
+            await state.clear()
+            return
+        except PhoneCodeExpiredError:
+            await message.answer(
+                "❌ Kod OTP telah tamat tempoh.\n"
+                "Sila cuba sambung akaun semula."
+            )
+            await _cleanup_pending(uid)
+            await state.clear()
+            return
+        
+        # OTP berjaya — simpan sesi
+        await _finalise_login(message, state, client, uid)
+        
+    except Exception as e:
+        print(f"process_otp error: {e}")
+        await message.answer(
+            "❌ Ralat semasa mengesahkan OTP.\n"
+            "Sila cuba lagi atau sambung akaun semula."
+        )
+
+CARA FIX LENGKAP untuk process_2fa:
+
+@router.message(UserbotStates.waiting_2fa)
+async def process_2fa(message: Message, state: FSMContext):
+    try:
+        password = message.text.strip()
+        uid = message.from_user.id
+        
+        if uid not in _pending:
+            await state.clear()
+            await message.answer(
+                "⚠️ Sesi telah tamat.\n"
+                "Sila mulakan semula proses sambung akaun."
+            )
+            return
+        
+        client = _pending[uid]["client"]
+        
+        await message.answer("⏳ Mengesahkan kata laluan 2FA...")
+        
+        try:
+            await client.sign_in(password=password)
+        except PasswordHashInvalidError:
+            await message.answer(
+                "❌ Kata laluan 2FA tidak sah.\n"
+                "Sila cuba lagi:"
+            )
+            return
+        
+        # 2FA berjaya — simpan sesi
+        await _finalise_login(message, state, client, uid)
+        
+    except Exception as e:
+        print(f"process_2fa error: {e}")
+        await message.answer(
+            "❌ Ralat semasa mengesahkan 2FA.\n"
+            "Sila cuba lagi."
+        )
+
+PASTIKAN imports ada dalam buat_userbot.py:
+from telethon.errors import (
+    SessionPasswordNeededError,
+    PhoneCodeInvalidError,
+    PhoneCodeExpiredError,
+    PasswordHashInvalidError
+)
+
+PASTIKAN dalam _finalise_login:
+- Simpan session_string ke Supabase table sessions
+- Kolum yang digunakan: user_id, userbot_id, 
+  phone_number, session_string, status
+- Semak kolum ini WUJUD dalam Supabase
+
+PENTING:
+- Jangan ubah flow lain
+- Jangan buat laman web / API
+- Bot dijalankan dengan: cd bot && python main.py
+- Semua teks Bahasa Melayu Malaysia
+- Tunjukkan fail yang diubah selepas fix
+- Jalankan bot dan tunjukkan log untuk sahkan tiada error
