@@ -1,9 +1,12 @@
+import asyncio
+import logging
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 import database as db
 from keyboards import back_to_menu_kb
 from services import scheduler_service
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 
@@ -54,26 +57,38 @@ async def _do_start_promote(uid: int, send_fn):
         )
         return
 
-    await db.set_promo_running(uid, True)
-    scheduler_service.start_promo_job(uid, delay_minutes=settings["delay_minutes"])
-
-    plan_name   = sub["plan"]
-    delay       = settings["delay_minutes"]
-    hours       = delay // 60
-    mins        = delay % 60
+    delay = settings["delay_minutes"]
+    plan_name = sub["plan"]
+    hours = delay // 60
+    mins  = delay % 60
     human_delay = f"{hours}j {mins}m" if hours > 0 else f"{mins}m"
+    n_targets = len(groups)
 
+    # ── 1. Set running + daftar scheduler (scheduler TIDAK fire serta-merta) ──
+    await db.set_promo_running(uid, True)
+    scheduler_service.start_promo_job(uid, delay_minutes=delay)
+
+    logger.info(
+        "[PROMOTE] uid=%s | Mulakan promote — %d target | delay=%dm",
+        uid, n_targets, delay,
+    )
+
+    # ── 2. Reply serta-merta untuk maklumkan user ──
     await send_fn(
         f"🚀 *Promote Dimulakan!*\n\n"
         f"📋 Pelan: *{plan_name}*\n"
-        f"👥 Kumpulan: *{len(groups)} kumpulan*\n"
+        f"🎯 Target: *{n_targets} kumpulan/channel*\n"
         f"⏱️ Jarak Masa: *setiap {human_delay}*\n\n"
-        f"Bot akan menghantar mesej anda ke semua kumpulan yang dipilih secara automatik.\n\n"
+        f"⏳ _Menghantar mesej pertama serta-merta..._\n\n"
         f"⚠️ _Auto-promote boleh menyebabkan akaun anda dihadkan oleh Telegram. "
         f"Gunakan dengan berhati-hati._",
         parse_mode="Markdown",
         reply_markup=back_to_menu_kb(),
     )
+
+    # ── 3. Hantar mesej pertama dalam background (tidak block reply di atas) ──
+    logger.info("[PROMOTE] uid=%s | Mencipta immediate send task...", uid)
+    asyncio.create_task(scheduler_service.run_promo_now(uid, delay_minutes=delay))
 
 
 async def _do_stop_promote(uid: int, send_fn):

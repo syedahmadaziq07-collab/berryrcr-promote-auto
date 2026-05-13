@@ -81,11 +81,14 @@ def get_job_id(user_id: int) -> str:
 
 
 def start_promo_job(user_id: int, delay_minutes: int = MIN_DELAY_MINUTES):
+    from datetime import timedelta
     if delay_minutes < MIN_DELAY_MINUTES:
         delay_minutes = MIN_DELAY_MINUTES
     job_id = get_job_id(user_id)
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
+    # next_run_time = selepas delay — mesej pertama dihantar terus dari promote handler
+    next_run_time = datetime.now() + timedelta(minutes=delay_minutes)
     scheduler.add_job(
         _run_promo,
         trigger=IntervalTrigger(minutes=delay_minutes),
@@ -93,14 +96,24 @@ def start_promo_job(user_id: int, delay_minutes: int = MIN_DELAY_MINUTES):
         args=[user_id],
         replace_existing=True,
         max_instances=1,
-        next_run_time=datetime.now(),  # Hantar pertama serta-merta
+        next_run_time=next_run_time,
     )
     job = scheduler.get_job(job_id)
     next_run = job.next_run_time if job else "?"
     logger.info(
-        "[PROMO] Job DICIPTA — user_id=%s | jarak=%dm | next_run=%s",
+        "[PROMO] Job DICIPTA — user_id=%s | jarak=%dm | next_scheduled_run=%s",
         user_id, delay_minutes, next_run,
     )
+
+
+async def run_promo_now(user_id: int, delay_minutes: int = MIN_DELAY_MINUTES):
+    """
+    Hantar mesej serta-merta — dipanggil dari promote handler sebaik user tekan Start.
+    Ini adalah send PERTAMA; scheduler akan kendalikan send seterusnya mengikut interval.
+    """
+    logger.info("[PROMO] ═══ IMMEDIATE SEND dimulakan — uid=%s ═══", user_id)
+    await _run_promo(user_id, is_immediate=True, delay_minutes=delay_minutes)
+    logger.info("[PROMO] ═══ IMMEDIATE SEND selesai — uid=%s ═══", user_id)
 
 
 def stop_promo_job(user_id: int):
@@ -119,8 +132,9 @@ async def _notify_user(user_id: int, text: str):
             logger.warning("[PROMO] Gagal notify user %s: %s", user_id, e)
 
 
-async def _run_promo(user_id: int):
-    logger.info("[PROMO] ══════ MULA KITARAN — user_id=%s ══════", user_id)
+async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: int = None):
+    label = "IMMEDIATE SEND" if is_immediate else "KITARAN BERKALA"
+    logger.info("[PROMO] ══════ MULA %s — user_id=%s ══════", label, user_id)
 
     try:
         # ── 1. Semak promo_settings ──
@@ -420,27 +434,48 @@ async def _run_promo(user_id: int):
                     pass
 
         logger.info(
-            "[PROMO] ══════ SELESAI — uid=%s | ✓ %d berjaya | ✗ %d gagal ══════",
-            user_id, success_count, fail_count,
+            "[PROMO] ══════ SELESAI %s — uid=%s | ✓ %d berjaya | ✗ %d gagal ══════",
+            label, user_id, success_count, fail_count,
         )
 
-        # ── 11. Notifikasi user (jika aktif) ──
+        # ── 11. Notifikasi user ──
+        # is_immediate=True → SENTIASA notify (mesej pertama, wajib tahu)
+        # is_immediate=False → ikut notif_aktif setting user
         notif_aktif = await db.get_notif_status(user_id)
-        if _bot_instance and notif_aktif:
-            delay = settings.get("delay_minutes", MIN_DELAY_MINUTES)
+        delay = delay_minutes or settings.get("delay_minutes", MIN_DELAY_MINUTES)
+
+        if _bot_instance and (is_immediate or notif_aktif):
+            # Kira next run untuk paparan
+            job = scheduler.get_job(get_job_id(user_id))
+            next_run_str = ""
+            if job and job.next_run_time:
+                import pytz
+                next_run_local = job.next_run_time.astimezone(pytz.timezone("Asia/Kuala_Lumpur"))
+                next_run_str = f"\n🕐 Seterusnya: *{next_run_local.strftime('%H:%M')}*"
+
             if success_count > 0:
-                await _notify_user(
-                    user_id,
-                    f"✅ *Promosi Berjaya Dihantar!*\n\n"
-                    f"📤 Berjaya: *{success_count}* kumpulan\n"
-                    f"❌ Gagal: *{fail_count}* kumpulan\n\n"
-                    f"⏱️ Mesej seterusnya dalam: *{delay} minit*",
-                )
+                if is_immediate:
+                    await _notify_user(
+                        user_id,
+                        f"🚀 *Promote Dimulakan!*\n\n"
+                        f"✅ Mesej pertama telah dihantar ke *{success_count}* kumpulan/channel"
+                        + (f"\n❌ Gagal: *{fail_count}* target" if fail_count else "")
+                        + f"\n⏱️ Seterusnya setiap *{delay} minit*"
+                        + next_run_str,
+                    )
+                else:
+                    await _notify_user(
+                        user_id,
+                        f"✅ *Promosi Berjaya Dihantar!*\n\n"
+                        f"📤 Berjaya: *{success_count}* kumpulan\n"
+                        f"❌ Gagal: *{fail_count}* kumpulan"
+                        + next_run_str,
+                    )
             elif fail_count > 0:
                 await _notify_user(
                     user_id,
                     f"⚠️ *Promosi Gagal Dihantar!*\n\n"
-                    f"Semua *{fail_count}* kumpulan gagal.\n\n"
+                    f"Semua *{fail_count}* kumpulan/channel gagal.\n\n"
                     f"Kemungkinan sebab:\n"
                     f"• Akaun dihadkan Telegram\n"
                     f"• Dikeluarkan dari kumpulan\n"
