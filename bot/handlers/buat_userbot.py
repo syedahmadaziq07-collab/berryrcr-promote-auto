@@ -154,7 +154,6 @@ async def cb_buat_sambung_akaun(callback: CallbackQuery, state: FSMContext):
         return
 
     await callback.answer()
-    await state.clear()
     await callback.message.answer(
         "📱 *Sambung Akaun Telegram*\n\n"
         "Sila hantar nombor Telegram anda.\n"
@@ -191,14 +190,16 @@ async def cancel_flow(message: Message, state: FSMContext):
 async def process_phone(message: Message, state: FSMContext):
     uid = message.from_user.id
 
-    # Ambil nombor dari contact atau teks
+    # Ambil nombor — contact diproses DULU sebelum semak teks
     if message.contact:
-        phone = message.contact.phone_number
+        phone = message.contact.phone_number.strip()
         if not phone.startswith("+"):
             phone = "+" + phone
     elif message.text:
         phone = message.text.strip()
-        if not phone.startswith("+") or len(phone) < 8:
+        if not phone.startswith("+"):
+            phone = "+" + phone
+        if len(phone) < 8 or not phone[1:].replace(" ", "").isdigit():
             await message.answer(
                 "⚠️ Format nombor tidak sah.\n\n"
                 "Contoh: `+60123456789`\n\n"
