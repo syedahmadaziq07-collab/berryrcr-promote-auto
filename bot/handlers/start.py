@@ -14,30 +14,33 @@ WELCOME_MESSAGE = """
 🤖 *Welcome to Promote Auto by @berryrcr\\_bot*
 ━━━━━━━━━━━━━━━
 
-⚡ *Quick Start Guide*
+⚡️ *Quick Start Guide*
 
 1️⃣ Topup syiling dekat 🛒 Kedai
-2️⃣ Buy Userbot untuk unlock system
-3️⃣ Activate plan FREE TRIAL / PLUS / PRO
-4️⃣ Connect akaun Telegram korang
-5️⃣ Pick group/channel korang sendiri
-6️⃣ Setup promote message \\+ timer
-7️⃣ Tekan 🚀 Mula Promote
+2️⃣ Buy Userbot untuk unlock access
+3️⃣ Activate plan korang (PLUS / PRO)
+4️⃣ Connect akaun Telegram dekat 📚 Buat Userbot
+5️⃣ Masuk ⚙️ Tetapan
+6️⃣ Setup 👥 Manage Group
+7️⃣ Setup 📝 Edit Message
+8️⃣ Setup ⏱️ Delay Timer
+9️⃣ Tekan 🚀 Start Promote
 
-Done\\. Bot akan jalan auto 💨
+Done ✅
+Bot akan auto running ikut timer yang korang set 💨
 
 ━━━━━━━━━━━━━━━
 
 🧠 *Apa yang bot ni boleh buat?*
 
 • Auto promote group & channel
-• Rotate banyak mesej auto
-• Auto reply message
-• Advanced multi\\-group mode
-• Delay timer custom
-• Backup token/login recovery
-• Referral reward system
-• Status account live monitoring
+• Rotate multiple message auto
+• 🤖 Auto Reply system
+• 🧪 Advanced Mode features
+• ⏱️ Custom delay timer
+• 📩 Backup login recovery
+• 🎁 Referral reward system
+• 📡 Live status monitoring
 
 ━━━━━━━━━━━━━━━
 
@@ -51,8 +54,6 @@ Done\\. Bot akan jalan auto 💨
 ━━━━━━━━━━━━━━━
 
 🌐 Promote Auto by @berryrcr\\_bot
-
-Choose menu bawah 👇
 """
 
 
