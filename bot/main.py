@@ -5,12 +5,12 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramConflictError, TelegramNetworkError
-from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import BOT_TOKEN
 from handlers import all_routers
 from services import scheduler_service
 from services.supabase_service import get_client
+from services.sqlite_storage import SQLiteStorage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -194,7 +194,8 @@ async def main():
     await check_tables()
 
     bot = Bot(token=token)
-    dp = Dispatcher(storage=MemoryStorage())
+    storage = SQLiteStorage(db_path=os.path.join(os.path.dirname(__file__), "fsm_storage.db"))
+    dp = Dispatcher(storage=storage)
 
     for router in all_routers:
         dp.include_router(router)
@@ -211,7 +212,7 @@ async def main():
     logger.info("=" * 55)
     logger.info("BOT MODE  : polling aktif — webhook dilumpuhkan")
     logger.info("BOT       : @%s (id=%s)", me.username, me.id)
-    logger.info("STORAGE   : MemoryStorage (FSM in-memory)")
+    logger.info("STORAGE   : SQLiteStorage (FSM persistent — fsm_storage.db)")
     logger.info("INSTANCE  : satu — drop_pending_updates=True")
     logger.info("=" * 55)
 

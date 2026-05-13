@@ -6,6 +6,7 @@ handlers/buat_userbot.py — 📚 Buat Userbot:
 """
 
 import logging
+import time
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -44,6 +45,8 @@ class TransferUserbotFSM(StatesGroup):
 _pending: dict = {}        # uid → {"client", "phone", "hash"}
 _sending_otp: set = set()  # uid sedang dalam proses hantar OTP — elak race condition
 
+OTP_TIMEOUT_SECS = 300     # 5 minit — OTP tamat tempoh selepas ini
+
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -78,6 +81,64 @@ async def _ask_for_phone(message: Message, state: FSMContext):
         reply_markup=request_phone_kb(),
     )
     await state.set_state(BuatUserbotFSM.waiting_phone)
+
+
+async def _do_send_otp(
+    message: Message,
+    state: FSMContext,
+    uid: int,
+    phone: str,
+    *,
+    is_resend: bool = False,
+):
+    """
+    Hantar (atau hantar semula) OTP ke nombor telefon yang diberikan.
+    Digunakan oleh process_phone dan auto-resend dalam process_otp.
+    Thread-safe melalui _sending_otp debounce set.
+    """
+    if uid in _sending_otp:
+        logger.warning("_do_send_otp SKIP uid=%s — OTP sedang dihantar (race)", uid)
+        return
+    _sending_otp.add(uid)
+
+    if uid in _pending:
+        logger.info("_do_send_otp: cleanup _pending lama uid=%s", uid)
+        await _cleanup_pending(uid)
+
+    prefix = "♻️ Menghantar semula kod OTP..." if is_resend else "⏳ Menghantar kod OTP..."
+    msg = await message.answer(prefix, reply_markup=remove_kb())
+
+    try:
+        logger.info(
+            "_do_send_otp: send_code uid=%s phone=%s resend=%s",
+            uid, _mask_phone(phone), is_resend,
+        )
+        client = await create_client(uid)
+        phone_code_hash = await send_code(client, phone)
+        _pending[uid] = {"client": client, "phone": phone, "hash": phone_code_hash}
+        await state.update_data(phone=phone, otp_sent_at=time.time())
+        await state.set_state(BuatUserbotFSM.waiting_otp)
+        logger.info("_do_send_otp: OTP dihantar uid=%s state=waiting_otp", uid)
+        await msg.edit_text(
+            "📨 Kod OTP telah dihantar melalui Telegram rasmi.\n\n"
+            "Sila hantar kod OTP anda *dengan jarak*.\n"
+            "Contoh jika OTP `12345`:\n`1 2 3 4 5`\n\n"
+            "⏱️ Sah selama 5 minit.",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.error("_do_send_otp GAGAL uid=%s: %s", uid, e)
+        await _cleanup_pending(uid)
+        await state.clear()
+        await msg.edit_text(
+            "❌ Gagal menghantar kod OTP.\n\n"
+            "Sila semak nombor telefon anda dan cuba lagi.\n"
+            "Pastikan nombor bermula dengan `+` dan kod negara.",
+            parse_mode="Markdown",
+        )
+        await message.answer("Kembali ke menu:", reply_markup=main_menu_kb())
+    finally:
+        _sending_otp.discard(uid)
 
 
 # ─────────────────────────────────────────────
@@ -232,48 +293,7 @@ async def process_phone(message: Message, state: FSMContext):
         )
         return
 
-    # Debounce — elak race condition jika dua update diproses serentak
-    if uid in _sending_otp:
-        logger.warning("process_phone SKIP — OTP sedang dihantar uid=%s (race condition)", uid)
-        return
-    _sending_otp.add(uid)
-
-    # Cleanup sesi lama jika ada
-    if uid in _pending:
-        logger.info("process_phone: cleanup _pending lama uid=%s", uid)
-        await _cleanup_pending(uid)
-
-    msg = await message.answer(
-        "⏳ Menghantar kod OTP...",
-        reply_markup=remove_kb(),
-    )
-    try:
-        logger.info("process_phone: mula send_code uid=%s phone=%s", uid, _mask_phone(phone))
-        client = await create_client(uid)
-        phone_code_hash = await send_code(client, phone)
-        _pending[uid] = {"client": client, "phone": phone, "hash": phone_code_hash}
-        await state.update_data(phone=phone)
-        await state.set_state(BuatUserbotFSM.waiting_otp)
-        logger.info("process_phone: OTP dihantar — uid=%s state=waiting_otp", uid)
-        await msg.edit_text(
-            "📨 Kod OTP telah dihantar melalui Telegram rasmi.\n\n"
-            "Sila hantar kod OTP anda *dengan jarak*.\n"
-            "Contoh jika OTP `12345`:\n`1 2 3 4 5`",
-            parse_mode="Markdown",
-        )
-    except Exception as e:
-        logger.error("process_phone send_code GAGAL uid=%s: %s", uid, e)
-        await _cleanup_pending(uid)
-        await state.clear()
-        await msg.edit_text(
-            "❌ Gagal menghantar kod OTP.\n\n"
-            "Sila semak nombor telefon anda dan cuba lagi.\n"
-            "Pastikan nombor bermula dengan `+` dan kod negara.",
-            parse_mode="Markdown",
-        )
-        await message.answer("Kembali ke menu:", reply_markup=main_menu_kb())
-    finally:
-        _sending_otp.discard(uid)
+    await _do_send_otp(message, state, uid, phone)
 
 
 # ─────────────────────────────────────────────
@@ -286,11 +306,41 @@ async def process_otp(message: Message, state: FSMContext):
     otp = message.text.strip().replace(" ", "") if message.text else ""
     pending = _pending.get(uid)
 
+    # ── _pending tiada — bot mungkin restart semasa user tunggu OTP ──
     if not pending:
+        data = await state.get_data()
+        phone = data.get("phone")
+        logger.warning("process_otp: _pending hilang uid=%s (bot restart?) phone=%s", uid, bool(phone))
+        if phone:
+            logger.info("process_otp: auto-resend OTP uid=%s phone=%s", uid, _mask_phone(phone))
+            await message.answer(
+                "⚠️ *Bot sempat restart.*\n\n"
+                "Kod OTP baharu sedang dihantar ke nombor anda...",
+                parse_mode="Markdown",
+            )
+            await _do_send_otp(message, state, uid, phone, is_resend=True)
+        else:
+            logger.warning("process_otp: tiada phone dalam state — clear uid=%s", uid)
+            await state.clear()
+            await message.answer(
+                "⚠️ Sesi anda telah tamat.\n"
+                "Sila mulakan semula proses sambung akaun.",
+                reply_markup=main_menu_kb(),
+            )
+        return
+
+    # ── Semak timeout 5 minit ──
+    data = await state.get_data()
+    otp_sent_at = data.get("otp_sent_at", 0)
+    elapsed = time.time() - otp_sent_at
+    if elapsed > OTP_TIMEOUT_SECS:
+        logger.info("process_otp: OTP timeout uid=%s elapsed=%.0fs", uid, elapsed)
+        await _cleanup_pending(uid)
         await state.clear()
         await message.answer(
-            "⚠️ Sesi anda telah tamat.\n"
+            "⏱️ *Kod OTP tamat tempoh* (5 minit).\n\n"
             "Sila mulakan semula proses sambung akaun.",
+            parse_mode="Markdown",
             reply_markup=main_menu_kb(),
         )
         return
