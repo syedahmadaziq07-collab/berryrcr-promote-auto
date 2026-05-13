@@ -79,7 +79,7 @@ Gunakan dengan berhati-hati:
 """
 
 
-@router.message(F.text == "⚠️ Bantuan")
+@router.message(F.text == "⚠️ Help Center")
 async def msg_help(message: Message):
     await message.answer(HELP_TEXT, parse_mode="Markdown", reply_markup=back_to_menu_kb())
 

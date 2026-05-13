@@ -140,7 +140,7 @@ async def msg_kembali(message: Message, state: FSMContext):
 # 🛒 KEDAI — Entry Point
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🛒 Kedai")
+@router.message(F.text == "🛒 Shop Zone")
 async def msg_kedai(message: Message, state: FSMContext):
     await state.clear()
     uid = message.from_user.id
@@ -185,7 +185,7 @@ async def msg_leaderboard(message: Message):
 # 💳 TOPUP SYILING — Langkah 1: Papar pakej (Inline Keyboard)
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🪙 Reload Syiling")
+@router.message(F.text == "💳 Reload Syiling")
 async def msg_topup(message: Message, state: FSMContext):
     # BUG 1 FIX: Jika user sudah dalam proses topup, jangan buka baru
     current_state = await state.get_state()
@@ -463,7 +463,7 @@ async def cb_topup_cancel(callback: CallbackQuery, state: FSMContext):
 # 🛍 BELI USERBOT — Langkah 1: Papar Pilihan Pelan
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🛍️ Buy Userbot")
+@router.message(F.text == "🛍 Buy Userbot")
 async def msg_beli_userbot(message: Message, state: FSMContext):
     await state.clear()
     uid         = message.from_user.id
@@ -889,7 +889,7 @@ async def msg_laman_utama(message: Message, state: FSMContext):
 # ⏳ TAMBAH BULAN — Langkah 1: Pilih Plan
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "⏳ Tambah Bulan")
+@router.message(F.text == "⏳ Tambah Month")
 async def msg_tambah_bulan(message: Message, state: FSMContext):
     await state.clear()
     uid         = message.from_user.id

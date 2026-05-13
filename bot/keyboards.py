@@ -15,9 +15,9 @@ from config import COIN_TOPUP_PACKAGES
 def main_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🛒 Kedai"),           KeyboardButton(text="⚠️ Bantuan")],
-            [KeyboardButton(text="🔑 Log Masuk Token"), KeyboardButton(text="📚 Buat Userbot")],
-            [KeyboardButton(text="⚙️ Tetapan")],
+            [KeyboardButton(text="🛒 Shop Zone"),      KeyboardButton(text="⚠️ Help Center")],
+            [KeyboardButton(text="🔑 Recover Token"),  KeyboardButton(text="📚 Create Userbot")],
+            [KeyboardButton(text="⚙️ Control Panel")],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -31,8 +31,8 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
 def kedai_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🪙 Reload Syiling"),   KeyboardButton(text="⏳ Tambah Bulan")],
-            [KeyboardButton(text="🛍️ Buy Userbot"),      KeyboardButton(text="📤 Send Syiling")],
+            [KeyboardButton(text="🛍 Buy Userbot"),      KeyboardButton(text="💳 Reload Syiling")],
+            [KeyboardButton(text="⏳ Tambah Month"),     KeyboardButton(text="📤 Send Syiling")],
             [KeyboardButton(text="🎁 Gift Userbot"),     KeyboardButton(text="🏆 Top Leaderboard")],
             [KeyboardButton(text="🏠 Back To Home")],
         ],

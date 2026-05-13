@@ -24,7 +24,7 @@ class LogMasukTokenFSM(StatesGroup):
 # 🔑 Log Masuk Token — Entry
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🔑 Log Masuk Token")
+@router.message(F.text == "🔑 Recover Token")
 async def msg_log_masuk(message: Message, state: FSMContext):
     await state.clear()
     uid = message.from_user.id

@@ -26,7 +26,7 @@ class SettingsFSM(StatesGroup):
 # ⚙️ TETAPAN UTAMA
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "⚙️ Tetapan")
+@router.message(F.text == "⚙️ Control Panel")
 async def msg_tetapan(message: Message, state: FSMContext):
     await state.clear()
     uid = message.from_user.id

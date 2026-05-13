@@ -182,7 +182,7 @@ async def _do_send_otp(
 # 📚 Buat Userbot — Entry Point
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "📚 Buat Userbot")
+@router.message(F.text == "📚 Create Userbot")
 async def msg_buat_userbot(message: Message, state: FSMContext):
     # Guard — jangan interrupt login flow yang sedang aktif
     current = await state.get_state()
