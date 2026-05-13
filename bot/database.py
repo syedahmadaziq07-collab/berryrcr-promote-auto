@@ -225,6 +225,17 @@ async def get_userbot_by_id(userbot_id: str):
         return None
 
 
+async def get_userbot(user_id: int):
+    """Ambil maklumat userbot user dari userbots table (canonical source untuk UB-ID)."""
+    client = await get_client()
+    try:
+        res = await client.table("userbots").select("*").eq("owner_id", user_id).execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        logger.warning("get_userbot error uid=%s: %s", user_id, e)
+        return None
+
+
 async def transfer_userbot(userbot_id: str, new_owner_id: int):
     client = await get_client()
     await client.table("userbots").update({"owner_id": new_owner_id}).eq("userbot_id", userbot_id).execute()
@@ -404,6 +415,14 @@ async def transfer_userbot_session(from_user_id: int, to_user_id: int):
         },
         on_conflict="user_id",
     ).execute()
+    # Kemaskini userbots.owner_id supaya canonical source konsisten
+    try:
+        await client.table("userbots").update(
+            {"owner_id": to_user_id}
+        ).eq("owner_id", from_user_id).execute()
+        logger.info("transfer_userbot_session: userbots.owner_id %s → %s", from_user_id, to_user_id)
+    except Exception as e:
+        logger.warning("transfer_userbot_session: userbots update gagal: %s", e)
 
 
 # ─────────────────────────────────────────────

@@ -61,11 +61,11 @@ async def _kedai_text(uid: int) -> str:
         balance = 0
 
     try:
-        session    = await db.get_session(uid)
-        ub_id      = session.get("userbot_id", "") if session else ""
-        ub_display = f"`{ub_id}`" if ub_id else "Tiada"
+        userbot_rec = await db.get_userbot(uid)   # canonical source
+        ub_id       = userbot_rec.get("userbot_id", "") if userbot_rec else ""
+        ub_display  = f"`{ub_id}`" if ub_id else "Tiada"
     except Exception as e:
-        logger.error("get_session gagal uid=%s: %s", uid, e)
+        logger.error("get_userbot gagal uid=%s: %s", uid, e)
         ub_display = "Tiada"
 
     try:
@@ -439,12 +439,12 @@ async def cb_topup_cancel(callback: CallbackQuery, state: FSMContext):
 @router.message(F.text == "🛍 Beli Userbot")
 async def msg_beli_userbot(message: Message, state: FSMContext):
     await state.clear()
-    uid     = message.from_user.id
-    balance = await db.get_wallet(uid)
-    session = await db.get_session(uid)
-    ub_id   = session.get("userbot_id", "") if session else ""
+    uid         = message.from_user.id
+    balance     = await db.get_wallet(uid)
+    userbot_rec = await db.get_userbot(uid)   # canonical source — userbots table
 
-    if ub_id:
+    if userbot_rec:
+        ub_id = userbot_rec.get("userbot_id", "")
         await message.answer(
             "🤖 *Anda Sudah Mempunyai Userbot*\n\n"
             f"ID Userbot anda: `{ub_id}`\n\n"
@@ -488,6 +488,22 @@ async def process_confirm_beli_userbot(message: Message, state: FSMContext):
             return
 
     userbot_id = await db.create_userbot(uid)
+
+    # Kemaskini sessions.userbot_id jika session sudah wujud
+    try:
+        session = await db.get_session(uid)
+        if session:
+            await db.save_session(
+                uid,
+                session.get("phone_number", ""),
+                session.get("session_string", ""),
+                tg_username=session.get("tg_username", ""),
+                userbot_id=userbot_id,
+            )
+            logger.info("beli_userbot: sessions.userbot_id dikemaskini uid=%s ub_id=%s", uid, userbot_id)
+    except Exception as e:
+        logger.warning("beli_userbot: update sessions.userbot_id gagal uid=%s: %s", uid, e)
+
     await message.answer(
         "✅ *Userbot Berjaya Dicipta!*\n"
         "━━━━━━━━━━━━━━━\n\n"
@@ -624,9 +640,9 @@ async def process_send_amount(message: Message, state: FSMContext):
 @router.message(F.text == "🎁 Gift Userbot")
 async def msg_gift_userbot(message: Message, state: FSMContext):
     await state.clear()
-    uid     = message.from_user.id
-    session = await db.get_session(uid)
-    ub_id   = session.get("userbot_id", "") if session else ""
+    uid         = message.from_user.id
+    userbot_rec = await db.get_userbot(uid)   # canonical source
+    ub_id       = userbot_rec.get("userbot_id", "") if userbot_rec else ""
 
     if not ub_id:
         await message.answer(
@@ -678,8 +694,8 @@ async def process_gift_target(message: Message, state: FSMContext):
         )
         return
 
-    target_session = await db.get_session(target_id)
-    if target_session and target_session.get("userbot_id"):
+    target_ub = await db.get_userbot(target_id)  # canonical check
+    if target_ub:
         await message.answer(
             f"⚠️ Penerima *{target['full_name']}* sudah mempunyai userbot.",
             parse_mode="Markdown",
@@ -688,8 +704,8 @@ async def process_gift_target(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    my_session = await db.get_session(uid)
-    ub_id      = my_session.get("userbot_id", "—") if my_session else "—"
+    my_ub = await db.get_userbot(uid)
+    ub_id = my_ub.get("userbot_id", "—") if my_ub else "—"
 
     await db.transfer_userbot_session(uid, target_id)
     await state.clear()

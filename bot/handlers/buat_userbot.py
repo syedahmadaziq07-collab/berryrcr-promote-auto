@@ -81,15 +81,22 @@ async def _ask_for_phone(message: Message, state: FSMContext):
 async def msg_buat_userbot(message: Message, state: FSMContext):
     await state.clear()
     uid = message.from_user.id
-    session = await db.get_session(uid)
-    sub = await db.get_active_subscription(uid)
+    userbot_rec = await db.get_userbot(uid)   # canonical source — userbots table
+    session     = await db.get_session(uid)
+    sub         = await db.get_active_subscription(uid)
 
-    if session:
-        phone_masked = _mask_phone(session.get("phone_number", ""))
-        tg_user = session.get("tg_username") or ""
-        acc_line = f"@{tg_user}" if tg_user else f"`{phone_masked}`"
-        userbot_id = session.get("userbot_id") or "—"
-        plan_name = sub["plan"] if sub else "Tiada (belum diaktifkan)"
+    if userbot_rec:
+        userbot_id = userbot_rec.get("userbot_id", "—")
+        plan_name  = sub["plan"] if sub else "Tiada (belum diaktifkan)"
+
+        if session:
+            phone_masked = _mask_phone(session.get("phone_number", ""))
+            tg_user      = session.get("tg_username") or ""
+            acc_line     = f"@{tg_user}" if tg_user else f"`{phone_masked}`"
+            has_session  = True
+        else:
+            acc_line    = "_Belum disambung_"
+            has_session = False
 
         text = (
             "📚 *Userbot Anda*\n"
@@ -113,7 +120,11 @@ async def msg_buat_userbot(message: Message, state: FSMContext):
         await message.answer(
             text,
             parse_mode="Markdown",
-            reply_markup=buat_userbot_kb(has_userbot=True, has_plan=sub is not None, has_session=True),
+            reply_markup=buat_userbot_kb(
+                has_userbot=True,
+                has_plan=sub is not None,
+                has_session=has_session,
+            ),
         )
         return
 
@@ -317,9 +328,14 @@ async def _finalise_login(uid: int, client, phone: str, msg, state: FSMContext):
         await client.disconnect()
         _pending.pop(uid, None)
 
-        # ── Jana UB-ID ──
-        userbot_id = _generate_userbot_id(uid)
-        logger.info("_finalise_login GENERATE uid=%s userbot_id=%s", uid, userbot_id)
+        # ── Jana atau guna semula UB-ID yang sedia ada ──
+        existing_ub = await db.get_userbot(uid)
+        if existing_ub and existing_ub.get("userbot_id"):
+            userbot_id = existing_ub["userbot_id"]
+            logger.info("_finalise_login REUSE UB-ID uid=%s userbot_id=%s", uid, userbot_id)
+        else:
+            userbot_id = _generate_userbot_id(uid)
+            logger.info("_finalise_login GENERATE uid=%s userbot_id=%s", uid, userbot_id)
 
         # ── Step 1: Simpan session (termasuk userbot_id) ──
         await db.save_session(
@@ -469,12 +485,12 @@ async def cb_confirm_activate(callback: CallbackQuery):
 @router.callback_query(F.data == "transfer_userbot_start")
 async def cb_transfer_userbot_start(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
-    session = await db.get_session(uid)
-    if not session or not session.get("userbot_id"):
+    userbot_rec = await db.get_userbot(uid)   # canonical source
+    if not userbot_rec or not userbot_rec.get("userbot_id"):
         await callback.answer("⚠️ Anda tiada userbot untuk dipindahkan!", show_alert=True)
         return
 
-    userbot_id = session["userbot_id"]
+    userbot_id = userbot_rec["userbot_id"]
     await callback.message.edit_text(
         "📤 *Pindah Userbot*\n\n"
         f"ID Userbot anda: `{userbot_id}`\n\n"
@@ -516,8 +532,8 @@ async def process_transfer_target(message: Message, state: FSMContext):
         )
         return
 
-    target_session = await db.get_session(target_id)
-    if target_session and target_session.get("userbot_id"):
+    target_ub = await db.get_userbot(target_id)  # canonical check
+    if target_ub:
         await message.answer(
             f"⚠️ Penerima *{target['full_name']}* sudah mempunyai userbot.",
             parse_mode="Markdown",
@@ -526,8 +542,8 @@ async def process_transfer_target(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    my_session = await db.get_session(uid)
-    userbot_id = my_session["userbot_id"] if my_session else "—"
+    my_ub    = await db.get_userbot(uid)
+    userbot_id = my_ub["userbot_id"] if my_ub else "—"
 
     await db.transfer_userbot_session(uid, target_id)
     await state.clear()
