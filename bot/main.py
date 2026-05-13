@@ -221,8 +221,11 @@ async def main():
 
     scheduler_service.set_bot(bot)
     scheduler_service.start_scheduler()
-    await scheduler_service.restore_running_promos()
-    logger.info("Scheduler dan promo jobs dipulihkan.")
+    try:
+        await scheduler_service.restore_running_promos()
+        logger.info("Scheduler dan promo jobs dipulihkan.")
+    except Exception as e:
+        logger.warning("restore_running_promos gagal (network/Supabase) — bot tetap berjalan: %s", e)
 
     asyncio.create_task(check_expired_subscriptions())
     logger.info("Subscription checker dimulakan (semak setiap 1 jam).")

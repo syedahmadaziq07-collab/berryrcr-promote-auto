@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 ACCESS_DENIED = "❌ Anda tidak mempunyai akses admin."
 
+# In-memory guard — elak double-process dalam runtime yang sama
+_processed_orders: set[str] = set()
+
 
 def admin_only(handler):
     """Decorator — tolak mesej jika bukan admin."""
@@ -479,9 +482,10 @@ async def _do_reject_request(order_id: str, admin_id: int, bot: Bot) -> tuple[bo
 
 @router.callback_query(F.data.startswith("tr_approve:"))
 async def cb_approve_topup_request(callback: CallbackQuery, bot: Bot):
-    await callback.answer()  # WAJIB baris pertama
+    await callback.answer()
 
-    if callback.from_user.id != ADMIN_ID:
+    admin_id = callback.from_user.id
+    if admin_id != ADMIN_ID:
         await callback.answer("❌ Akses ditolak.", show_alert=True)
         return
 
@@ -497,22 +501,61 @@ async def cb_approve_topup_request(callback: CallbackQuery, bot: Bot):
         await callback.answer("⚠️ Ralat data callback.", show_alert=True)
         return
 
-    # Tambah syiling ke wallet user
+    logger.info("[TOPUP] approve attempt | order_id=%s admin_id=%s user_id=%s coins=%s",
+                order_id, admin_id, user_id, coins)
+
+    # ── Guard 1: in-memory (elak double-tap dalam runtime sama) ──
+    if order_id in _processed_orders:
+        logger.warning("[TOPUP] double-process blocked (memory) | order_id=%s", order_id)
+        await callback.answer("⚠️ Order ini sudah diproses.", show_alert=True)
+        return
+
+    # ── Guard 2: semak status dalam DB ──
+    status_before = None
+    try:
+        req = await db.get_topup_request(order_id)
+        if req:
+            status_before = req.get("status")
+            if status_before in ("approved", "rejected", "processed"):
+                logger.warning("[TOPUP] double-process blocked (DB status=%s) | order_id=%s",
+                               status_before, order_id)
+                _processed_orders.add(order_id)
+                await callback.answer("⚠️ Order ini sudah diproses.", show_alert=True)
+                return
+    except Exception as e:
+        logger.warning("[TOPUP] get_topup_request skip: %s", e)
+
+    # ── Mark in-memory SEBELUM tambah coins ──
+    _processed_orders.add(order_id)
+
+    # ── Kemaskini status DB dahulu (conditional: hanya update jika status=waiting_approval) ──
+    db_updated = False
+    try:
+        result = await db.approve_topup_request(order_id, admin_id)
+        db_updated = result is not None
+        if not db_updated and status_before is not None:
+            # DB ada record tapi status bukan waiting_approval — sudah diproses
+            logger.warning("[TOPUP] DB update returned None — status_before=%s | order_id=%s",
+                           status_before, order_id)
+            await callback.answer("⚠️ Order ini sudah diproses.", show_alert=True)
+            _processed_orders.add(order_id)
+            return
+    except Exception as e:
+        logger.warning("[TOPUP] approve_topup_request DB skip (table mungkin belum wujud): %s", e)
+
+    # ── Tambah syiling (sekali sahaja) ──
     try:
         await db.add_coins(user_id, coins, f"Topup {order_id} diluluskan")
         new_balance = await db.get_wallet(user_id)
     except Exception as e:
-        logger.error("approve add_coins gagal uid=%s: %s", user_id, e)
+        logger.error("[TOPUP] add_coins gagal uid=%s order_id=%s: %s", user_id, order_id, e)
         await callback.answer("⚠️ Gagal tambah syiling.", show_alert=True)
         return
 
-    # Kemaskini status dalam DB jika table wujud (optional)
-    try:
-        await db.approve_topup_request(order_id, callback.from_user.id)
-    except Exception as e:
-        logger.warning("approve_topup_request DB skip (table mungkin belum wujud): %s", e)
+    logger.info("[TOPUP] approved OK | order_id=%s user_id=%s coins=%s status_before=%s status_after=approved",
+                order_id, user_id, coins, status_before)
 
-    # Notify user
+    # ── Notify user ──
     try:
         await bot.send_message(
             user_id,
@@ -524,22 +567,27 @@ async def cb_approve_topup_request(callback: CallbackQuery, bot: Bot):
             parse_mode="Markdown",
         )
     except Exception as e:
-        logger.warning("Gagal notify user approve uid=%s: %s", user_id, e)
+        logger.warning("[TOPUP] gagal notify user approve uid=%s: %s", user_id, e)
 
-    # Log admin action
-    await db.write_admin_log(
-        ADMIN_ID, f"approve_topup_{order_id}",
-        target_user_id=user_id, notes=f"{coins} syiling RM{amount:.2f}"
-    )
+    # ── Log admin action ──
+    try:
+        await db.write_admin_log(
+            admin_id, f"approve_topup_{order_id}",
+            target_user_id=user_id, notes=f"{coins} syiling RM{amount:.2f}"
+        )
+    except Exception as e:
+        logger.warning("[TOPUP] write_admin_log skip: %s", e)
 
-    # Update caption mesej admin
+    # ── Edit mesej admin — buang butang, tunjuk status final ──
     user  = await db.get_user_info(user_id)
     uname = f"@{user['username']}" if user and user.get("username") else str(user_id)
     msg   = (
-        f"✅ *{order_id} DILULUSKAN*\n\n"
+        f"✅ *TOPUP APPROVED*\n\n"
+        f"📋 Order: `{order_id}`\n"
         f"👤 {uname} (`{user_id}`)\n"
         f"🪙 {coins:,} Syiling | RM{amount:.2f}\n"
-        f"Baki baru: *{new_balance:,} syiling*"
+        f"Baki baru: *{new_balance:,} syiling*\n"
+        f"✔️ Diluluskan oleh admin `{admin_id}`"
     )
     try:
         await callback.message.edit_caption(caption=msg, parse_mode="Markdown", reply_markup=None)
@@ -552,9 +600,10 @@ async def cb_approve_topup_request(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("tr_reject:"))
 async def cb_reject_topup_request(callback: CallbackQuery, bot: Bot):
-    await callback.answer()  # WAJIB baris pertama
+    await callback.answer()
 
-    if callback.from_user.id != ADMIN_ID:
+    admin_id = callback.from_user.id
+    if admin_id != ADMIN_ID:
         await callback.answer("❌ Akses ditolak.", show_alert=True)
         return
 
@@ -568,13 +617,49 @@ async def cb_reject_topup_request(callback: CallbackQuery, bot: Bot):
         await callback.answer("⚠️ Ralat data callback.", show_alert=True)
         return
 
-    # Kemaskini status dalam DB jika table wujud (optional)
-    try:
-        await db.reject_topup_request(order_id, callback.from_user.id)
-    except Exception as e:
-        logger.warning("reject_topup_request DB skip (table mungkin belum wujud): %s", e)
+    logger.info("[TOPUP] reject attempt | order_id=%s admin_id=%s user_id=%s",
+                order_id, admin_id, user_id)
 
-    # Notify user
+    # ── Guard 1: in-memory ──
+    if order_id in _processed_orders:
+        logger.warning("[TOPUP] double-process blocked (memory) | order_id=%s", order_id)
+        await callback.answer("⚠️ Order ini sudah diproses.", show_alert=True)
+        return
+
+    # ── Guard 2: semak status dalam DB ──
+    status_before = None
+    try:
+        req = await db.get_topup_request(order_id)
+        if req:
+            status_before = req.get("status")
+            if status_before in ("approved", "rejected", "processed"):
+                logger.warning("[TOPUP] double-process blocked (DB status=%s) | order_id=%s",
+                               status_before, order_id)
+                _processed_orders.add(order_id)
+                await callback.answer("⚠️ Order ini sudah diproses.", show_alert=True)
+                return
+    except Exception as e:
+        logger.warning("[TOPUP] get_topup_request skip: %s", e)
+
+    # ── Mark in-memory ──
+    _processed_orders.add(order_id)
+
+    # ── Kemaskini status DB ──
+    try:
+        result = await db.reject_topup_request(order_id, admin_id)
+        db_updated = result is not None
+        if not db_updated and status_before is not None:
+            logger.warning("[TOPUP] DB reject returned None — status_before=%s | order_id=%s",
+                           status_before, order_id)
+            await callback.answer("⚠️ Order ini sudah diproses.", show_alert=True)
+            return
+    except Exception as e:
+        logger.warning("[TOPUP] reject_topup_request DB skip (table mungkin belum wujud): %s", e)
+
+    logger.info("[TOPUP] rejected OK | order_id=%s user_id=%s status_before=%s status_after=rejected",
+                order_id, user_id, status_before)
+
+    # ── Notify user ──
     try:
         await bot.send_message(
             user_id,
@@ -585,19 +670,24 @@ async def cb_reject_topup_request(callback: CallbackQuery, bot: Bot):
             parse_mode="Markdown",
         )
     except Exception as e:
-        logger.warning("Gagal notify user reject uid=%s: %s", user_id, e)
+        logger.warning("[TOPUP] gagal notify user reject uid=%s: %s", user_id, e)
 
-    # Log admin action
-    await db.write_admin_log(
-        ADMIN_ID, f"reject_topup_{order_id}", target_user_id=user_id
-    )
+    # ── Log admin action ──
+    try:
+        await db.write_admin_log(
+            admin_id, f"reject_topup_{order_id}", target_user_id=user_id
+        )
+    except Exception as e:
+        logger.warning("[TOPUP] write_admin_log skip: %s", e)
 
-    # Update caption mesej admin
+    # ── Edit mesej admin — buang butang, tunjuk status final ──
     user  = await db.get_user_info(user_id)
     uname = f"@{user['username']}" if user and user.get("username") else str(user_id)
     msg   = (
-        f"❌ *{order_id} DITOLAK*\n\n"
-        f"👤 {uname} (`{user_id}`)"
+        f"❌ *TOPUP REJECTED*\n\n"
+        f"📋 Order: `{order_id}`\n"
+        f"👤 {uname} (`{user_id}`)\n"
+        f"✘ Ditolak oleh admin `{admin_id}`"
     )
     try:
         await callback.message.edit_caption(caption=msg, parse_mode="Markdown", reply_markup=None)
