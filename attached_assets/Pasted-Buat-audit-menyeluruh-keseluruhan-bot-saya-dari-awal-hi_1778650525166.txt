@@ -1,0 +1,154 @@
+Buat audit menyeluruh keseluruhan bot saya dari awal hingga akhir.
+Jangan fix apa-apa dulu. Laporan sahaja.
+
+SKOP AUDIT:
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 1 — STRUKTUR & KONFIGURASI
+━━━━━━━━━━━━━━━━━━━━
+
+Semak:
+1. Struktur folder dan fail — adakah lengkap dan teratur
+2. main.py — semak semua router yang didaftarkan
+3. Adakah ada router didaftarkan dua kali
+4. Adakah semua handler diimport dengan betul
+5. Konfigurasi environment variables — adakah semua ada
+6. requirements.txt — adakah semua library yang digunakan disenaraikan
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 2 — DATABASE & SUPABASE
+━━━━━━━━━━━━━━━━━━━━
+
+Semak database.py dan semua query:
+1. Senaraikan semua table yang digunakan dalam kod
+2. Senaraikan semua kolum yang digunakan dalam setiap table
+3. Kenal pasti kolum yang digunakan dalam kod 
+   tetapi mungkin tiada dalam Supabase
+4. Semak semua fungsi database — adakah ada yang:
+   - Tiada try/except
+   - Boleh menyebabkan bot crash
+   - Menggunakan kolum yang salah
+5. Semak table sessions — senaraikan semua kolum yang digunakan
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 3 — HANDLERS & FLOW
+━━━━━━━━━━━━━━━━━━━━
+
+Semak setiap fail handler:
+1. Adakah semua callback_query ada await callback.answer()
+2. Adakah ada handler yang boleh trigger dua kali
+3. Adakah semua FSM state dikendalikan dengan betul
+4. Adakah ada state yang tergantung tanpa jalan keluar
+5. Adakah semua butang Batal dan Kembali berfungsi
+6. Adakah ada mesej yang dihantar berganda
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 4 — TOPUP FLOW
+━━━━━━━━━━━━━━━━━━━━
+
+Semak keseluruhan flow topup:
+1. Pilih pakej — adakah berfungsi
+2. Order summary — adakah papar dengan betul
+3. Proceed to Payment — adakah ada error
+4. QR image — adakah path betul dan fail wujud
+5. I Have Paid — adakah FSM state betul
+6. Upload resit — adakah disimpan dengan betul
+7. Notifikasi admin — adakah dihantar
+8. Approve/Reject — adakah wallet dikemaskini
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 5 — OTP & SAMBUNG AKAUN
+━━━━━━━━━━━━━━━━━━━━
+
+Semak keseluruhan flow OTP:
+1. Input nombor telefon — adakah berfungsi
+2. Hantar OTP via Telethon — adakah berfungsi
+3. Masuk kod OTP — adakah disahkan dengan betul
+4. 2FA password — adakah dikendalikan dengan betul
+5. Simpan sesi — adakah semua kolum wujud dalam table
+6. Jana userbot_id — adakah format betul
+7. Error handling — adakah semua error dipapar dengan mesej jelas
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 6 — PROMOTE FLOW
+━━━━━━━━━━━━━━━━━━━━
+
+Semak keseluruhan flow promote:
+1. Pilih kumpulan — adakah berfungsi
+2. Tetapkan mesej — adakah disimpan
+3. Tetapkan tempoh antara hantar — adakah berfungsi
+4. Mula promote — adakah berjalan
+5. Henti promote — adakah berhenti dengan betul
+6. Semak flood wait — adakah dikendalikan
+7. Semak akaun banned — adakah dikendalikan
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 7 — KEDAI & WALLET
+━━━━━━━━━━━━━━━━━━━━
+
+Semak:
+1. Papar baki syiling — adakah betul
+2. Beli userbot — adakah tolak syiling dengan betul
+3. Hantar syiling — adakah berfungsi
+4. Gift userbot — adakah berfungsi
+5. Semak wallet sebelum setiap transaksi
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 8 — ADMIN PANEL
+━━━━━━━━━━━━━━━━━━━━
+
+Semak:
+1. Notifikasi topup baru — adakah dihantar ke admin
+2. Approve topup — adakah wallet dikemaskini
+3. Reject topup — adakah user dimaklumkan
+4. Semak adakah ADMIN_ID digunakan dengan betul
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 9 — UX & MESEJ
+━━━━━━━━━━━━━━━━━━━━
+
+Semak:
+1. Adakah ada teks bahasa Indonesia — perlu tukar ke 
+   Bahasa Melayu Malaysia
+2. Adakah ada mesej yang tidak kemas atau tidak profesional
+3. Adakah main menu guna reply keyboard (bukan inline)
+4. Adakah ada emoji yang berlebihan atau tidak konsisten
+
+━━━━━━━━━━━━━━━━━━━━
+FORMAT LAPORAN YANG DIKEHENDAKI
+━━━━━━━━━━━━━━━━━━━━
+
+Untuk setiap masalah yang dijumpai:
+
+🔴 KRITIKAL — menyebabkan bot crash atau fungsi utama rosak
+🟡 SEDERHANA — fungsi tidak lengkap atau ada bug kecil
+🟢 MINOR — teks salah, emoji tidak konsisten, dll
+
+Format setiap masalah:
+
+[🔴/🟡/🟢] MASALAH: [nama masalah]
+Bahagian : [bahagian mana]
+Fail     : [nama fail : nombor baris]
+Punca    : [punca sebenar]
+Kesan    : [apa yang berlaku kepada user]
+──────────────────────────────────────
+
+Di akhir laporan, paparkan ringkasan:
+
+RINGKASAN AUDIT
+━━━━━━━━━━━━━━━━━━━━
+🔴 Kritikal : [bilangan]
+🟡 Sederhana: [bilangan]
+🟢 Minor    : [bilangan]
+━━━━━━━━━━━━━━━━━━━━
+Jumlah      : [bilangan] masalah dijumpai
+
+SELEPAS audit selesai, TANYA saya dulu 
+sebelum buat sebarang perubahan.
+
+PENTING:
+- Jangan fix apa-apa sekarang
+- Jangan buat laman web / API / papan pemuka
+- Bot dijalankan dengan: cd bot && python main.py
+- Semua teks Bahasa Melayu Malaysia
+- Jangan guna bahasa Indonesia
