@@ -32,7 +32,7 @@ def kedai_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🛍 Buy Userbot"),      KeyboardButton(text="💳 Reload Syiling")],
-            [KeyboardButton(text="⏳ Tambah Month"),     KeyboardButton(text="📤 Send Syiling")],
+            [KeyboardButton(text="🛠️ Setup Month & Plan"),     KeyboardButton(text="📤 Send Syiling")],
             [KeyboardButton(text="🎁 Gift Userbot"),     KeyboardButton(text="🏆 Top Leaderboard")],
             [KeyboardButton(text="🏠 Back To Home")],
         ],

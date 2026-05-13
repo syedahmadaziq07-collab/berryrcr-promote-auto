@@ -898,7 +898,7 @@ async def msg_laman_utama(message: Message, state: FSMContext):
 # ⏳ TAMBAH BULAN — Langkah 1: Pilih Plan
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "⏳ Tambah Month")
+@router.message(F.text == "🛠️ Setup Month & Plan")
 async def msg_tambah_bulan(message: Message, state: FSMContext):
     await state.clear()
     uid         = message.from_user.id
