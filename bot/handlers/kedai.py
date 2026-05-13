@@ -20,6 +20,7 @@ from keyboards import (
     topup_order_summary_kb,
     topup_payment_kb,
     topup_request_admin_kb,
+    plan_duration_kb,
 )
 
 router = Router()
@@ -486,77 +487,51 @@ async def msg_beli_userbot(message: Message, state: FSMContext):
 
     balance = await db.get_wallet(uid)
     text = (
-        "🛍 *Buy Userbot*\n"
+        "🛍 *Pilih Plan Korang*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"💰 Your balance: *{balance:,} Syiling*\n\n"
-        "Pick a plan:\n\n"
-        "⭐ *PLUS — 300 Syiling (RM3)*\n"
+        f"💰 Balance korang: *{balance:,} Syiling*\n\n"
+        "⭐ *PLUS — 300 Syiling / bulan*\n"
         "• Auto promote group pilihan\n"
         "• Footer wajib @berryrcr\n\n"
-        "🔥 *PRO — 600 Syiling (RM6)*\n"
+        "👑 *PRO — 600 Syiling / bulan*\n"
         "• Auto promote group pilihan\n"
-        "• Footer boleh off\n"
-        "• Priority support\n\n"
-        "💎 *PREMIUM — 1,000 Syiling (RM10)*\n"
-        "• Auto promote group pilihan\n"
-        "• Footer boleh off\n"
-        "• VIP support 24/7\n"
-        "• Highest priority"
+        "• Boleh tutup footer\n"
+        "• Priority support"
     )
     await message.answer(text, parse_mode="Markdown", reply_markup=beli_userbot_plans_kb())
 
 
 # ─────────────────────────────────────────────
-# 🛍 BELI USERBOT — Langkah 2: Pilih Pelan → Konfirmasi
+# 🛍 BELI USERBOT — Langkah 2: Pilih Pelan → Pilih Tempoh
 # ─────────────────────────────────────────────
+
+_PLAN_ICON = {"PLUS": "⭐ PLUS", "PRO": "👑 PRO", "PREMIUM": "💎 PREMIUM"}
+_PLAN_COINS = {"PLUS": 300, "PRO": 600, "PREMIUM": 1000}
 
 @router.callback_query(F.data.startswith("buy_plan_select:"))
 async def cb_buy_plan_select(callback: CallbackQuery):
     await callback.answer()
-    uid      = callback.from_user.id
     plan_key = callback.data.split(":")[1].upper()
 
-    logger.info("buy_plan_select: uid=%s plan=%s", uid, plan_key)
+    logger.info("buy_plan_select: uid=%s plan=%s", callback.from_user.id, plan_key)
 
     if plan_key not in COIN_PLANS:
         await callback.answer("⚠️ Pelan tidak sah.", show_alert=True)
         return
 
-    plan    = COIN_PLANS[plan_key]
-    balance = await db.get_wallet(uid)
-    total   = plan["coins"]
+    icon            = _PLAN_ICON.get(plan_key, plan_key)
+    coins_per_month = _PLAN_COINS.get(plan_key, 300)
 
-    cukup_icon = "✅" if balance >= total else "❌"
-    baki_selepas = balance - total if balance >= total else 0
-
-    features_txt = "\n".join(f"  • {f}" for f in plan["features"])
     text = (
-        f"📋 *Confirm Purchase*\n"
+        f"🗓️ *Pilih Tempoh*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"Plan: *{plan['name']}*\n"
-        f"Price: *{total:,} Syiling* (RM{plan['price_rm']:.2f})\n\n"
-        f"*Features:*\n{features_txt}\n\n"
-        "━━━━━━━━━━━━━━━\n"
-        f"💰 Current balance: *{balance:,} Syiling*\n"
-        f"💸 Cost: *{total:,} Syiling*\n"
-        f"{cukup_icon} Balance after: *{baki_selepas:,} Syiling*\n\n"
+        f"Plan: *{icon}*\n"
+        f"Rate: *{coins_per_month:,} Syiling / bulan*\n\n"
+        "Berapa bulan korang nak aktifkan? 👇"
     )
-    if balance < total:
-        text += (
-            "⚠️ *Baki tak cukup!*\n"
-            f"Need top up lagi *{total - balance:,} Syiling*.\n"
-            "Reload via 💳 Topup Syiling."
-        )
-        await callback.message.edit_text(
-            text, parse_mode="Markdown",
-            reply_markup=beli_userbot_plans_kb(),
-        )
-        return
-
-    text += "Tekan *Yes, Buy Now* untuk teruskan."
     await callback.message.edit_text(
         text, parse_mode="Markdown",
-        reply_markup=beli_userbot_confirm_kb(plan_key),
+        reply_markup=plan_duration_kb(plan_key, "buy"),
     )
 
 
@@ -680,22 +655,16 @@ async def cb_beli_userbot_back(callback: CallbackQuery):
     balance = await db.get_wallet(uid)
     logger.info("beli_userbot_back: uid=%s kembali ke senarai pelan", uid)
     text = (
-        "🛍 *Buy Userbot*\n"
+        "🛍 *Pilih Plan Korang*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"💰 Your balance: *{balance:,} Syiling*\n\n"
-        "Pick a plan:\n\n"
-        "⭐ *PLUS — 300 Syiling (RM3)*\n"
+        f"💰 Balance korang: *{balance:,} Syiling*\n\n"
+        "⭐ *PLUS — 300 Syiling / bulan*\n"
         "• Auto promote group pilihan\n"
         "• Footer wajib @berryrcr\n\n"
-        "🔥 *PRO — 600 Syiling (RM6)*\n"
+        "👑 *PRO — 600 Syiling / bulan*\n"
         "• Auto promote group pilihan\n"
-        "• Footer boleh off\n"
-        "• Priority support\n\n"
-        "💎 *PREMIUM — 1,000 Syiling (RM10)*\n"
-        "• Auto promote group pilihan\n"
-        "• Footer boleh off\n"
-        "• VIP support 24/7\n"
-        "• Highest priority"
+        "• Boleh tutup footer\n"
+        "• Priority support"
     )
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=beli_userbot_plans_kb())
 

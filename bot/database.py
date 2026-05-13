@@ -233,9 +233,10 @@ PLAN_DURATION_DAYS: dict[str, int] = {
 }
 
 
-async def create_subscription(user_id: int, plan: str):
+async def create_subscription(user_id: int, plan: str, months: int = 1):
     """
     Simpan subscription baru dengan expires_at dikira secara automatik.
+    months: bilangan bulan langganan (1-12). Default 1 bulan.
     Resilient: Cuba set active=False pada rekod lama dulu; jika gagal (column tiada), teruskan insert.
     """
     from datetime import datetime, timezone, timedelta
@@ -246,7 +247,7 @@ async def create_subscription(user_id: int, plan: str):
         logger.warning("create_subscription: update active=False gagal uid=%s: %s (column mungkin tiada)", user_id, e)
 
     now = datetime.now(timezone.utc)
-    duration_days = PLAN_DURATION_DAYS.get(plan.upper(), 30)
+    duration_days = 30 * max(1, int(months))
     expires_at = now + timedelta(days=duration_days)
 
     try:
@@ -262,7 +263,7 @@ async def create_subscription(user_id: int, plan: str):
         await client.table("subscriptions").insert(
             {"user_id": user_id, "plan": plan}
         ).execute()
-    logger.info("create_subscription: uid=%s plan=%s tamat=%s", user_id, plan, expires_at.strftime("%Y-%m-%d"))
+    logger.info("create_subscription: uid=%s plan=%s months=%s tamat=%s", user_id, plan, months, expires_at.strftime("%Y-%m-%d"))
 
 
 # ─────────────────────────────────────────────

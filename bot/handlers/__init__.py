@@ -2,6 +2,7 @@ from handlers.admin import router as admin_router
 from handlers.start import router as start_router
 from handlers.kedai import router as kedai_router
 from handlers.buat_userbot import router as buat_userbot_router
+from handlers.plan_flow import router as plan_flow_router
 from handlers.account import router as account_router
 from handlers.tetapan import router as tetapan_router
 from handlers.promote import router as promote_router
@@ -14,6 +15,7 @@ from handlers.schedule import router as schedule_router
 from handlers.settings import router as settings_router
 from handlers.referral import router as referral_router
 from handlers.expert import router as expert_router
+from handlers.subscription import router as subscription_router
 from handlers.fallback import router as fallback_router
 
 all_routers = [
@@ -21,6 +23,8 @@ all_routers = [
     start_router,           # /start + main_menu callback
     kedai_router,           # 🛒 Kedai + semua transaksi
     buat_userbot_router,    # 📚 Buat Userbot + aktif pelan
+    plan_flow_router,       # 🗓️ Shared plan duration & purchase flow
+    subscription_router,    # 🛒 Beli Userbot reply kb + sub context
     account_router,         # 🔑 Log Masuk Token (FSM OTP)
     status_router,          # 🪪 Status Account
     groups_router,          # 👥 Urus Kumpulan (view/add/remove/clear)

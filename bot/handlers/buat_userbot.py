@@ -17,7 +17,7 @@ from keyboards import (
     buat_userbot_kb, plan_confirm_kb,
     back_to_menu_kb, cancel_kb,
     request_phone_kb, remove_kb,
-    main_menu_kb,
+    main_menu_kb, plan_duration_kb, activate_plan_kb,
 )
 from services.telethon_service import (
     create_client, send_code, sign_in, get_session_string,
@@ -229,13 +229,13 @@ async def msg_buat_userbot(message: Message, state: FSMContext):
         if not sub:
             text += (
                 "\n\n━━━━━━━━━━━━━━━\n"
-                "⭐ *PLUS — 300 Syiling (RM3)*\n"
+                "⭐ *PLUS — 300 Syiling / bulan*\n"
                 "• Auto promote ke kumpulan pilihan\n"
                 "• Footer wajib @berryrcr\n\n"
-                "🔥 *PRO — 600 Syiling (RM6)*\n"
+                "👑 *PRO — 600 Syiling / bulan*\n"
                 "• Auto promote ke kumpulan pilihan\n"
                 "• Boleh tutup footer\n"
-                "• Keutamaan sokongan"
+                "• Priority support"
             )
         await message.answer(
             text,
@@ -580,64 +580,59 @@ _CONFIRM_MAP = {
 }
 
 
+_PLAN_ICON_MAP  = {"PLUS": "⭐ PLUS", "PRO": "👑 PRO", "PREMIUM": "💎 PREMIUM"}
+_PLAN_COINS_MAP = {"PLUS": 300, "PRO": 600, "PREMIUM": 1000}
+
+
 @router.callback_query(F.data.in_(set(_ACTIVATE_MAP.keys())))
 async def cb_activate_plan(callback: CallbackQuery):
     plan_key = _ACTIVATE_MAP[callback.data]
-    plan     = COIN_PLANS[plan_key]
     uid      = callback.from_user.id
 
-    logger.info("cb_activate_plan: uid=%s plan=%s", uid, plan_key)
+    logger.info("cb_activate_plan: uid=%s plan=%s → pilih tempoh", uid, plan_key)
 
-    balance = await db.get_wallet(uid)
-    if balance < plan["coins"]:
-        await callback.answer(
-            f"⚠️ Baki tidak mencukupi! Perlu {plan['coins']} syiling, ada {balance}.",
-            show_alert=True,
-        )
-        return
+    icon            = _PLAN_ICON_MAP.get(plan_key, plan_key)
+    coins_per_month = _PLAN_COINS_MAP.get(plan_key, 300)
 
     await callback.answer()
     text = (
-        f"📋 *Sahkan Naiktaraf Pelan*\n\n"
-        f"Pelan: *{plan['name']}*\n"
-        f"Kos: *{plan['coins']:,} Syiling*\n"
-        f"Baki semasa: *{balance:,} Syiling*\n"
-        f"Baki selepas: *{balance - plan['coins']:,} Syiling*\n\n"
-        f"Teruskan?"
+        f"🗓️ *Pilih Tempoh*\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"Plan: *{icon}*\n"
+        f"Rate: *{coins_per_month:,} Syiling / bulan*\n\n"
+        "Berapa bulan korang nak aktifkan? 👇"
     )
     await callback.message.edit_text(
         text, parse_mode="Markdown",
-        reply_markup=plan_confirm_kb(plan_key),
+        reply_markup=plan_duration_kb(plan_key, "act"),
     )
 
 
-@router.callback_query(F.data.in_(set(_CONFIRM_MAP.keys())))
-async def cb_confirm_activate(callback: CallbackQuery):
-    plan_key = _CONFIRM_MAP[callback.data]
-    plan     = COIN_PLANS[plan_key]
-    uid      = callback.from_user.id
+@router.callback_query(F.data == "act_plan_select")
+async def cb_act_plan_select(callback: CallbackQuery):
+    """Kembali ke pilihan plan dari duration selection (act context)."""
+    await callback.answer()
+    uid     = callback.from_user.id
+    balance = await db.get_wallet(uid)
+    sub     = await db.get_active_subscription(uid)
 
-    logger.info("cb_confirm_activate: uid=%s plan=%s — mula proses", uid, plan_key)
-    await callback.answer("⏳ Memproses...")
-
-    ok = await db.deduct_coins(uid, plan["coins"], f"Naiktaraf pelan {plan['name']}")
-    if not ok:
-        balance = await db.get_wallet(uid)
-        logger.warning("cb_confirm_activate: uid=%s baki tidak cukup — ada %d perlu %d", uid, balance, plan["coins"])
-        await callback.message.edit_text(
-            "⚠️ *Baki tidak mencukupi!*\n\nSila topup syiling dahulu.",
-            parse_mode="Markdown",
-            reply_markup=back_to_menu_kb(),
-        )
-        return
-
-    await db.create_subscription(uid, plan_key)
-    logger.info("cb_confirm_activate: uid=%s pelan=%s BERJAYA diaktifkan", uid, plan_key)
+    current = f"Pelan semasa: *{sub['plan']}*\n\n" if sub else "Pelan aktif: Tiada\n\n"
+    text = (
+        f"🛒 *Pilih Plan*\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"{current}"
+        "⭐ *PLUS — 300 Syiling / bulan*\n"
+        "  ✅ Auto promote ke group pilihan\n"
+        "  ✅ Footer wajib @berryrcr\n\n"
+        "👑 *PRO — 600 Syiling / bulan*\n"
+        "  ✅ Auto promote ke group pilihan\n"
+        "  ✅ Boleh tutup footer\n"
+        "  ✅ Priority support\n\n"
+        f"💰 Balance: *{balance:,} Syiling*"
+    )
     await callback.message.edit_text(
-        f"✅ *Pelan {plan['name']} Berjaya Diaktifkan!*\n\n"
-        "Gunakan *⚙️ Tetapan* untuk konfigurasi kumpulan, mesej & jarak masa.",
-        parse_mode="Markdown",
-        reply_markup=back_to_menu_kb(),
+        text, parse_mode="Markdown",
+        reply_markup=activate_plan_kb(),
     )
 
 

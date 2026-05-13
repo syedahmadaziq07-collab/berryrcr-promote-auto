@@ -61,18 +61,56 @@ def topup_packages_reply_kb() -> ReplyKeyboardMarkup:
 def beli_userbot_plans_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="⭐ PLUS — 300 Syiling (RM3)",
+            text="⭐ PLUS — 300 Syiling / bulan",
             callback_data="buy_plan_select:PLUS",
         )],
         [InlineKeyboardButton(
-            text="🔥 PRO — 600 Syiling (RM6)",
+            text="👑 PRO — 600 Syiling / bulan",
             callback_data="buy_plan_select:PRO",
         )],
-        [InlineKeyboardButton(
-            text="💎 PREMIUM — 1,000 Syiling (RM10)",
-            callback_data="buy_plan_select:PREMIUM",
-        )],
         [InlineKeyboardButton(text="❌ Batal", callback_data="beli_userbot_cancel")],
+    ])
+
+
+def plan_duration_kb(plan_key: str, context: str) -> InlineKeyboardMarkup:
+    """Keyboard pilih tempoh 1-12 bulan, 3 button setiap baris."""
+    buttons = []
+    row = []
+    for m in range(1, 13):
+        row.append(InlineKeyboardButton(
+            text=f"{m} bulan",
+            callback_data=f"plan_dur:{context}:{plan_key}:{m}",
+        ))
+        if len(row) == 3:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    back_map = {"buy": "beli_userbot_back", "act": "act_plan_select", "sub": "buy_userbot"}
+    buttons.append([InlineKeyboardButton(text="⬅️ Kembali", callback_data=back_map.get(context, "main_menu"))])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def plan_confirm_final_kb(context: str, plan_key: str, months: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="✅ Confirm",
+            callback_data=f"plan_final:{context}:{plan_key}:{months}",
+        )],
+        [InlineKeyboardButton(
+            text="⬅️ Back",
+            callback_data=f"plan_dur_back:{context}:{plan_key}",
+        )],
+    ])
+
+
+def activate_plan_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⭐ PLUS",  callback_data="activate_plus"),
+            InlineKeyboardButton(text="👑 PRO",   callback_data="activate_pro"),
+        ],
+        [InlineKeyboardButton(text="⬅️ Kembali", callback_data="main_menu")],
     ])
 
 
