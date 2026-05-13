@@ -15,6 +15,7 @@ from telethon.errors import (
 )
 import database as db
 from config import MANDATORY_FOOTER, MIN_DELAY_MINUTES, API_ID, API_HASH
+from services.email_service import notify_session_error
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +295,7 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
                     "Sesi Telegram anda telah tamat tempoh.\n"
                     "Sila log masuk semula melalui 📚 Buat Userbot.",
                 )
+                await notify_session_error(user_id, userbot_id, "Session Expired — userbot tidak authorized")
                 return
 
             logger.info("[PROMO] uid=%s | Telethon OK — mula menghantar ke %d kumpulan/channel", user_id, len(groups))
@@ -404,7 +406,8 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
                     logger.warning("[PROMO] uid=%s | ✗ UserBanned dalam '%s' (id=%s)", user_id, gname, gid)
 
                 except (AuthKeyUnregisteredError, UserDeactivatedBanError) as e:
-                    logger.error("[PROMO] uid=%s | Sesi tidak sah: %s — hentikan promo", user_id, type(e).__name__)
+                    err_name = type(e).__name__
+                    logger.error("[PROMO] uid=%s | Sesi tidak sah: %s — hentikan promo", user_id, err_name)
                     await db.set_promo_running(user_id, False)
                     stop_promo_job(user_id)
                     await _notify_user(
@@ -412,6 +415,10 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
                         "⚠️ *Promote Dihentikan*\n\n"
                         "Sesi Telegram anda telah tamat atau akaun dihadkan.\n"
                         "Sila log masuk semula melalui 📚 Buat Userbot.",
+                    )
+                    await notify_session_error(
+                        user_id, userbot_id,
+                        f"Auth Key Invalid / Account Restricted ({err_name})",
                     )
                     return
 
