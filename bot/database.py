@@ -534,28 +534,63 @@ async def save_selected_groups(user_id: int, groups: list):
                 "user_id": user_id,
                 "group_id": str(g["id"]),
                 "group_name": g.get("title") or g.get("group_name") or "",
+                "group_username": g.get("username") or "",
+                "target_type": g.get("target_type", "group"),
+                "access_hash": str(g["access_hash"]) if g.get("access_hash") else None,
             }
             for g in groups
         ]
         try:
             await client.table("selected_groups").insert(rows).execute()
+            logger.info("save_selected_groups OK uid=%s count=%d", user_id, len(rows))
         except Exception as e:
-            logger.error("save_selected_groups INSERT gagal uid=%s — pulihkan backup: %s", user_id, e)
-            if backup:
-                restore_rows = [
+            # Column target_type/access_hash mungkin belum wujud — cuba tanpa column baru
+            logger.warning(
+                "save_selected_groups penuh gagal uid=%s: %s — cuba tanpa target_type/access_hash",
+                user_id, e,
+            )
+            rows_minimal = [
+                {
+                    "user_id": user_id,
+                    "group_id": str(g["id"]),
+                    "group_name": g.get("title") or g.get("group_name") or "",
+                    "group_username": g.get("username") or "",
+                }
+                for g in groups
+            ]
+            try:
+                await client.table("selected_groups").insert(rows_minimal).execute()
+                logger.info("save_selected_groups minimal OK uid=%s count=%d", user_id, len(rows_minimal))
+            except Exception as e2:
+                # Cuba lagi tanpa group_username
+                logger.warning("save_selected_groups minimal gagal uid=%s: %s — cuba bare minimum", user_id, e2)
+                rows_bare = [
                     {
                         "user_id": user_id,
-                        "group_id": b["group_id"],
-                        "group_name": b.get("group_name") or "",
+                        "group_id": str(g["id"]),
+                        "group_name": g.get("title") or g.get("group_name") or "",
                     }
-                    for b in backup
+                    for g in groups
                 ]
                 try:
-                    await client.table("selected_groups").insert(restore_rows).execute()
-                    logger.info("save_selected_groups: backup dipulihkan uid=%s", user_id)
-                except Exception as e2:
-                    logger.error("save_selected_groups: pulih backup gagal uid=%s: %s", user_id, e2)
-            raise
+                    await client.table("selected_groups").insert(rows_bare).execute()
+                except Exception as e3:
+                    logger.error("save_selected_groups INSERT gagal uid=%s — pulihkan backup: %s", user_id, e3)
+                    if backup:
+                        restore_rows = [
+                            {
+                                "user_id": user_id,
+                                "group_id": b["group_id"],
+                                "group_name": b.get("group_name") or "",
+                            }
+                            for b in backup
+                        ]
+                        try:
+                            await client.table("selected_groups").insert(restore_rows).execute()
+                            logger.info("save_selected_groups: backup dipulihkan uid=%s", user_id)
+                        except Exception as e4:
+                            logger.error("save_selected_groups: pulih backup gagal uid=%s: %s", user_id, e4)
+                    raise
 
 
 # ─────────────────────────────────────────────
@@ -911,18 +946,42 @@ async def clear_all_groups(user_id: int) -> int:
         return 0
 
 
-async def add_single_group(user_id: int, group_id: str, group_title: str, group_username: str = None) -> bool:
+async def add_single_group(
+    user_id: int,
+    group_id: str,
+    group_title: str,
+    group_username: str = None,
+    target_type: str = "group",
+    access_hash: str = None,
+) -> bool:
     try:
         client = await get_client()
         existing = await client.table("selected_groups").select("group_id").eq("user_id", user_id).eq("group_id", group_id).execute()
         if existing.data:
             return False
-        await client.table("selected_groups").insert({
+        # Cuba insert penuh dengan semua field
+        full_row = {
             "user_id": user_id,
             "group_id": group_id,
             "group_name": group_title or "",
-        }).execute()
-        return True
+            "group_username": group_username or "",
+            "target_type": target_type,
+            "access_hash": str(access_hash) if access_hash else None,
+        }
+        try:
+            await client.table("selected_groups").insert(full_row).execute()
+            logger.info("add_single_group OK uid=%s gid=%s type=%s", user_id, group_id, target_type)
+            return True
+        except Exception as e:
+            # Column baru mungkin belum wujud — fallback
+            logger.warning("add_single_group full gagal uid=%s: %s — cuba minimal", user_id, e)
+            await client.table("selected_groups").insert({
+                "user_id": user_id,
+                "group_id": group_id,
+                "group_name": group_title or "",
+            }).execute()
+            logger.info("add_single_group minimal OK uid=%s gid=%s", user_id, group_id)
+            return True
     except Exception as e:
         logger.warning("add_single_group error uid=%s gid=%s: %s", user_id, group_id, e)
         return False

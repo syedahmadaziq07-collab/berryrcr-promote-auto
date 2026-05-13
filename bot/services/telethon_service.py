@@ -2,6 +2,10 @@ import asyncio
 import logging
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from telethon.tl.types import (
+    InputPeerChannel, InputPeerChat,
+    Channel, Chat,
+)
 from telethon.errors import (
     SessionPasswordNeededError, FloodWaitError,
     UserDeactivatedBanError, AuthKeyUnregisteredError,
@@ -48,31 +52,102 @@ async def get_session_string(client: TelegramClient) -> str:
     return client.session.save()
 
 
+def _entity_type(entity) -> str:
+    """
+    Kenal pasti jenis target dari Telethon entity.
+    Pulangkan: 'channel' | 'supergroup' | 'group'
+    """
+    if isinstance(entity, Channel):
+        if entity.megagroup or entity.gigagroup:
+            return "supergroup"
+        return "channel"
+    return "group"
+
+
 async def fetch_user_groups(session_string: str) -> list:
+    """
+    Ambil semua dialog (kumpulan + channel) dari akaun userbot.
+    Pulangkan list dict dengan keys: id, title, username, target_type, access_hash.
+    """
     client = await create_client_from_session(session_string)
     try:
         dialogs = await client.get_dialogs()
-        groups = []
+        targets = []
         for dialog in dialogs:
             entity = dialog.entity
-            if hasattr(entity, "megagroup") or hasattr(entity, "gigagroup"):
-                groups.append({
+            username = getattr(entity, "username", None)
+            access_hash = getattr(entity, "access_hash", None)
+
+            if isinstance(entity, Channel):
+                # Supergroup (megagroup=True) atau broadcast channel
+                ttype = "supergroup" if (entity.megagroup or getattr(entity, "gigagroup", False)) else "channel"
+                targets.append({
                     "id": entity.id,
-                    "title": dialog.name,
-                    "username": getattr(entity, "username", None),
+                    "title": dialog.name or str(entity.id),
+                    "username": username,
+                    "target_type": ttype,
+                    "access_hash": access_hash,
                 })
-            elif dialog.is_group:
-                groups.append({
+            elif isinstance(entity, Chat) or dialog.is_group:
+                # Regular group (chat biasa)
+                targets.append({
                     "id": entity.id,
-                    "title": dialog.name,
+                    "title": dialog.name or str(entity.id),
                     "username": None,
+                    "target_type": "group",
+                    "access_hash": None,
                 })
-        return groups
+        return targets
     finally:
         await client.disconnect()
 
 
+async def build_peer(client: TelegramClient, group_id: str, target_type: str, access_hash: str, username: str):
+    """
+    Bina entity yang betul untuk Telethon send_message.
+
+    Keutamaan:
+      1. @username  — paling selamat, API resolve sendiri
+      2. InputPeerChannel / InputPeerChat + access_hash
+      3. Raw int(group_id) — last resort, mungkin gagal jika tiada cache
+
+    Pulangkan entity atau None jika gagal.
+    """
+    # ── Kaedah 1: @username ──
+    if username:
+        clean = username.lstrip("@").strip()
+        if clean:
+            try:
+                entity = await client.get_entity(f"@{clean}")
+                logger.info("[PEER] Resolved via @%s", clean)
+                return entity
+            except Exception as e:
+                logger.warning("[PEER] Gagal resolve @%s: %s — cuba cara lain", clean, e)
+
+    # ── Kaedah 2: InputPeer + access_hash ──
+    if access_hash:
+        try:
+            ah = int(access_hash)
+            gid_int = int(group_id)
+            if target_type in ("channel", "supergroup"):
+                peer = InputPeerChannel(gid_int, ah)
+            else:
+                peer = InputPeerChat(gid_int)
+            logger.info("[PEER] Resolved via InputPeer (type=%s id=%s)", target_type, group_id)
+            return peer
+        except Exception as e:
+            logger.warning("[PEER] Gagal bina InputPeer (type=%s id=%s): %s", target_type, group_id, e)
+
+    # ── Kaedah 3: Raw int — mungkin OK kalau ada dalam session cache ──
+    logger.warning(
+        "[PEER] Tiada username/access_hash untuk id=%s type=%s — guna raw int (mungkin gagal utk channel)",
+        group_id, target_type,
+    )
+    return int(group_id)
+
+
 async def send_message_to_group(session_string: str, group_id: int, message: str) -> bool:
+    """Legacy helper — masih dipakai oleh kod luar scheduler."""
     client = await create_client_from_session(session_string)
     try:
         await client.send_message(group_id, message)
@@ -121,7 +196,7 @@ async def check_account_health(session_string: str) -> str:
 async def resolve_entity(session_string: str, identifier: str) -> dict | None:
     """
     Sahkan dan dapatkan maklumat kumpulan/saluran menggunakan ID atau username.
-    Pulangkan dict {id, title, username} atau None jika tidak dijumpai.
+    Pulangkan dict {id, title, username, target_type, access_hash} atau None jika tidak dijumpai.
     """
     if not session_string:
         return None
@@ -129,15 +204,30 @@ async def resolve_entity(session_string: str, identifier: str) -> dict | None:
     try:
         raw = identifier.strip()
         if raw.lstrip("-").isdigit():
-            target = int(raw)
+            # ID — boleh jadi positif (Telethon) atau negatif (Bot API format)
+            raw_int = int(raw)
+            # Tukar format Bot API (-100xxxxxxxxx) → Telethon positif ID
+            if raw_int < -1000000000000:
+                raw_int = int(str(abs(raw_int))[3:])  # buang prefix -100
+            target = raw_int
         else:
             target = raw.lstrip("@")
 
         entity = await client.get_entity(target)
+        access_hash = getattr(entity, "access_hash", None)
+        username = getattr(entity, "username", None)
+        ttype = _entity_type(entity)
+
+        logger.info(
+            "resolve_entity OK: id=%s title=%s type=%s username=%s",
+            entity.id, getattr(entity, "title", "?"), ttype, username,
+        )
         return {
             "id": entity.id,
             "title": getattr(entity, "title", str(entity.id)),
-            "username": getattr(entity, "username", None),
+            "username": username,
+            "target_type": ttype,
+            "access_hash": access_hash,
         }
     except Exception as e:
         logger.warning("resolve_entity gagal identifier=%s: %s", identifier, e)

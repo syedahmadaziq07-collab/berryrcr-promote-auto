@@ -184,13 +184,21 @@ async def process_add_group_manual(message: Message, state: FSMContext):
         group_id    = str(entity["id"])
         group_title = entity["title"]
         group_uname = entity.get("username")
+        target_type = entity.get("target_type", "group")
+        access_hash = entity.get("access_hash")
+        type_icon   = "📢" if target_type == "channel" else ("👥" if target_type == "supergroup" else "💬")
 
-        added = await db.add_single_group(uid, group_id, group_title, group_uname)
+        added = await db.add_single_group(
+            uid, group_id, group_title, group_uname,
+            target_type=target_type,
+            access_hash=str(access_hash) if access_hash else None,
+        )
         if added:
             await wait.edit_text(
-                f"✅ *Kumpulan Berjaya Ditambah!*\n\n"
-                f"📍 {group_title}\n"
-                f"🆔 `{group_id}`",
+                f"✅ *Target Berjaya Ditambah!*\n\n"
+                f"{type_icon} {group_title}\n"
+                f"🆔 `{group_id}`\n"
+                f"📌 Jenis: *{target_type}*",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="👥 Urus Kumpulan", callback_data="groups_manage")],

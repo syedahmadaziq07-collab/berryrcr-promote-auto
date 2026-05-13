@@ -238,11 +238,13 @@ def groups_selection_kb(groups: list, selected_ids: set) -> InlineKeyboardMarkup
     buttons = []
     for g in groups:
         gid   = g["id"]
-        title = g["title"][:30]
+        title = g["title"][:28]
         check = "✅ " if gid in selected_ids else "◻️ "
+        ttype = g.get("target_type", "group")
+        icon  = "📢" if ttype == "channel" else ("👥" if ttype == "supergroup" else "💬")
         buttons.append([
             InlineKeyboardButton(
-                text=f"{check}{title}",
+                text=f"{check}{icon} {title}",
                 callback_data=f"toggle_group_{gid}",
             )
         ])
