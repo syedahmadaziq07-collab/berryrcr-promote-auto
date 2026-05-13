@@ -1,4 +1,8 @@
 import logging
+import time
+from datetime import datetime
+
+import pytz
 from aiogram import Router, F, Bot
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -9,6 +13,12 @@ from config import ADMIN_ID
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+# In-memory cooldown — elak spam notify admin (5 minit per user)
+_start_notify_cache: dict[int, float] = {}
+_NOTIFY_COOLDOWN_SECONDS = 300  # 5 minit
+
+MY_TZ = pytz.timezone("Asia/Kuala_Lumpur")
 
 WELCOME_MESSAGE = """
 🤖 *Welcome to Promote Auto by @berryrcr\\_bot*
@@ -57,30 +67,73 @@ Bot akan auto running ikut timer yang korang set 💨
 """
 
 
-async def _notify_admin_new_user(bot: Bot, user_id: int, username: str, full_name: str):
+async def _notify_admin_start(
+    bot: Bot,
+    user_id: int,
+    username: str,
+    full_name: str,
+    is_new: bool,
+):
+    """Hantar notifikasi admin bila user tekan /start.
+    - Cooldown 5 minit per user — elak spam.
+    - Title & label berbeza untuk pengguna baru vs aktif.
+    """
     if not ADMIN_ID:
         return
+
+    # ── Cooldown check ──
+    now = time.monotonic()
+    last = _start_notify_cache.get(user_id, 0)
+    if now - last < _NOTIFY_COOLDOWN_SECONDS:
+        logger.debug("[START] notify cooldown active uid=%s", user_id)
+        return
+    _start_notify_cache[user_id] = now
+
+    # ── Format masa Malaysia ──
+    masa = datetime.now(MY_TZ).strftime("%d/%m/%Y %H:%M")
+
+    uname_display = f"@{username}" if username else "Tiada"
+
+    if is_new:
+        title = "👤 PELANGGAN BARU MASUK!"
+        label = "🆕 Pengguna baru!"
+    else:
+        title = "👤 PELANGGAN AKTIF MASUK!"
+        label = "♻️ Pengguna aktif kembali!"
+
+    text = (
+        f"*{title}*\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"• Nama: {full_name}\n"
+        f"• Username: {uname_display}\n"
+        f"• ID: `{user_id}`\n"
+        f"• Masa: {masa} (MY)\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"{label}"
+    )
+
     try:
-        uname = f"@{username}" if username else "tiada username"
-        text = (
-            "👤 *Pengguna Baru!*\n\n"
-            f"🆔 ID: `{user_id}`\n"
-            f"👤 Nama: {full_name}\n"
-            f"🔗 Username: {uname}"
-        )
         await bot.send_message(ADMIN_ID, text, parse_mode="Markdown")
+        logger.info("[START] admin notified | uid=%s is_new=%s", user_id, is_new)
+    except Exception as e:
+        logger.warning("[START] gagal notify admin uid=%s: %s", user_id, e)
+
+    # ── Log ke admin_logs (best-effort) ──
+    try:
+        action = "new_user_joined" if is_new else "returning_user_start"
         await db.write_admin_log(
             admin_id=ADMIN_ID,
-            action="new_user_joined",
+            action=action,
             target_user_id=user_id,
-            notes=f"{full_name} ({uname})",
+            notes=f"{full_name} ({uname_display})",
         )
     except Exception as e:
-        logger.warning(f"Gagal hantar notifikasi admin: {e}")
+        logger.debug("[START] write_admin_log skip: %s", e)
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
+    # ── Hantar welcome kepada customer dulu ──
     await message.answer(
         WELCOME_MESSAGE,
         parse_mode="Markdown",
@@ -92,10 +145,17 @@ async def cmd_start(message: Message, bot: Bot):
         is_new = await db.is_new_user(user.id)
         await db.ensure_user(user.id, user.username or "", user.full_name or "")
 
-        if is_new:
-            await _notify_admin_new_user(bot, user.id, user.username or "", user.full_name or "")
+        # ── Notify admin (new & returning, dengan cooldown) ──
+        await _notify_admin_start(
+            bot,
+            user_id=user.id,
+            username=user.username or "",
+            full_name=user.full_name or "",
+            is_new=is_new,
+        )
 
-            # ── Semak kod rujukan ──
+        # ── Proses referral (pengguna baru sahaja) ──
+        if is_new:
             args = message.text.split(maxsplit=1)
             ref_param = args[1].strip() if len(args) > 1 else ""
             if ref_param.startswith("REF-"):
@@ -121,8 +181,9 @@ async def cmd_start(message: Message, bot: Bot):
                                 pass
                 except Exception as e:
                     logger.warning("Referral processing error: %s", e)
+
     except Exception as e:
-        logger.error(f"DB error dalam cmd_start untuk user {user.id}: {e}")
+        logger.error("DB error dalam cmd_start untuk user %s: %s", user.id, e)
 
 
 @router.callback_query(F.data == "main_menu")
