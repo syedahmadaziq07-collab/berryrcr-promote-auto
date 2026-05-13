@@ -38,7 +38,6 @@ ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
 UPDATE subscriptions SET active = TRUE WHERE active IS NULL;
 
 -- TABLE: sessions
--- PENTING: Pastikan column userbot_id, tg_username, connected_at wujud!
 CREATE TABLE IF NOT EXISTS sessions (
     user_id        BIGINT PRIMARY KEY,
     phone_number   TEXT,
@@ -46,14 +45,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     tg_username    TEXT,
     userbot_id     TEXT,
     connected_at   TIMESTAMPTZ,
+    backup_email   TEXT,
     created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- MIGRATION: Tambah column ke sessions table jika belum ada
--- (Selamat dijalankan walaupun column sudah wujud)
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS userbot_id   TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tg_username  TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS connected_at TIMESTAMPTZ;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS backup_email TEXT;
 
 -- TABLE: selected_groups
 CREATE TABLE IF NOT EXISTS selected_groups (
@@ -70,8 +70,14 @@ CREATE TABLE IF NOT EXISTS promo_settings (
     message_text  TEXT,
     delay_minutes INTEGER DEFAULT 60,
     is_running    BOOLEAN DEFAULT FALSE,
+    notif_aktif   BOOLEAN DEFAULT TRUE,
+    expert_mode   BOOLEAN DEFAULT FALSE,
     updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- MIGRATION: Tambah column baru ke promo_settings
+ALTER TABLE promo_settings ADD COLUMN IF NOT EXISTS notif_aktif BOOLEAN DEFAULT TRUE;
+ALTER TABLE promo_settings ADD COLUMN IF NOT EXISTS expert_mode BOOLEAN DEFAULT FALSE;
 
 -- TABLE: transactions
 CREATE TABLE IF NOT EXISTS transactions (
@@ -131,11 +137,125 @@ CREATE TABLE IF NOT EXISTS topup_requests (
     approved_by      BIGINT
 );
 
--- INDEX untuk carian pantas
+-- INDEX untuk carian pantas topup_requests
 CREATE INDEX IF NOT EXISTS idx_topup_requests_user_id  ON topup_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_topup_requests_status   ON topup_requests(status);
 CREATE INDEX IF NOT EXISTS idx_topup_requests_order_id ON topup_requests(order_id);
 
+-- ─────────────────────────────────────────────
+-- JADUAL BARU — Features tambahan
+-- ─────────────────────────────────────────────
+
+-- TABLE: broadcast_messages (senarai mesej sebarkan)
+CREATE TABLE IF NOT EXISTS broadcast_messages (
+    id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id   TEXT NOT NULL,
+    user_id      BIGINT NOT NULL,
+    content_type TEXT NOT NULL,
+    text_content TEXT,
+    file_id      TEXT,
+    urutan       INTEGER DEFAULT 0,
+    created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_broadcast_userbot ON broadcast_messages(userbot_id);
+
+-- TABLE: autoreply_channels (saluran balas auto)
+CREATE TABLE IF NOT EXISTS autoreply_channels (
+    id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id   TEXT NOT NULL,
+    user_id      BIGINT NOT NULL,
+    channel_id   TEXT NOT NULL,
+    channel_name TEXT,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (userbot_id, channel_id)
+);
+CREATE INDEX IF NOT EXISTS idx_autoreply_channels_userbot ON autoreply_channels(userbot_id);
+
+-- TABLE: autoreply_texts (teks balas auto)
+CREATE TABLE IF NOT EXISTS autoreply_texts (
+    id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id    BIGINT NOT NULL,
+    teks       TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_autoreply_texts_userbot ON autoreply_texts(userbot_id);
+
+-- TABLE: schedules (jadual aktif promote)
+CREATE TABLE IF NOT EXISTS schedules (
+    id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id  TEXT UNIQUE NOT NULL,
+    user_id     BIGINT NOT NULL,
+    waktu_mula  TIME NOT NULL,
+    waktu_tamat TIME NOT NULL,
+    aktif       BOOLEAN DEFAULT TRUE,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_schedules_userbot ON schedules(userbot_id);
+
+-- TABLE: referrals (kod rujukan)
+CREATE TABLE IF NOT EXISTS referrals (
+    id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    referrer_id BIGINT NOT NULL,
+    referred_id BIGINT NOT NULL UNIQUE,
+    ref_code    TEXT NOT NULL,
+    coins_given INTEGER DEFAULT 0,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id);
+
+-- TABLE: group_messages (mesej khusus per kumpulan — Mod Lanjutan)
+CREATE TABLE IF NOT EXISTS group_messages (
+    id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id      BIGINT NOT NULL,
+    group_id     TEXT NOT NULL,
+    message_text TEXT NOT NULL,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_group_messages_user ON group_messages(user_id);
+
+-- ─────────────────────────────────────────────
+-- FUNGSI RPC ATOM UNTUK WALLET
+-- Elak race condition pada add_coins / deduct_coins
+-- Jalankan ini supaya operasi wallet adalah selamat
+-- ─────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION add_coins(
+    p_user_id BIGINT,
+    p_amount  INTEGER
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO wallets (user_id, coins)
+    VALUES (p_user_id, p_amount)
+    ON CONFLICT (user_id)
+    DO UPDATE SET coins = wallets.coins + p_amount;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION deduct_coins(
+    p_user_id BIGINT,
+    p_amount  INTEGER
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE wallets
+    SET    coins = coins - p_amount
+    WHERE  user_id = p_user_id
+    AND    coins >= p_amount;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Baki tidak mencukupi';
+    END IF;
+END;
+$$;
+
 -- ============================================================
--- SELESAI — Semua table dan column berjaya dicipta/dikemaskini
+-- SELESAI — Semua table, column, index dan fungsi RPC
+-- telah berjaya dicipta / dikemaskini
 -- ============================================================

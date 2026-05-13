@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import database as db
@@ -34,6 +35,7 @@ def start_promo_job(user_id: int, delay_minutes: int = MIN_DELAY_MINUTES):
         args=[user_id],
         replace_existing=True,
         max_instances=1,
+        next_run_time=datetime.now(),
     )
     logger.info(f"Promo job dimulakan untuk user {user_id} (jarak masa: {delay_minutes} minit)")
 
@@ -122,17 +124,30 @@ async def _run_promo(user_id: int):
 
         # ── Notifikasi (semak pilihan user) ──
         notif_aktif = await db.get_notif_status(user_id)
-        if _bot_instance and success_count > 0 and notif_aktif:
+        if _bot_instance and notif_aktif:
             try:
                 delay = settings.get("delay_minutes", MIN_DELAY_MINUTES)
-                await _bot_instance.send_message(
-                    user_id,
-                    f"✅ *Promosi Berjaya Dihantar!*\n\n"
-                    f"📤 Berjaya: *{success_count}* kumpulan\n"
-                    f"❌ Gagal: *{fail_count}* kumpulan\n\n"
-                    f"Jarak masa seterusnya: *{delay} minit*",
-                    parse_mode="Markdown",
-                )
+                if success_count > 0:
+                    await _bot_instance.send_message(
+                        user_id,
+                        f"✅ *Promosi Berjaya Dihantar!*\n\n"
+                        f"📤 Berjaya: *{success_count}* kumpulan\n"
+                        f"❌ Gagal: *{fail_count}* kumpulan\n\n"
+                        f"Jarak masa seterusnya: *{delay} minit*",
+                        parse_mode="Markdown",
+                    )
+                elif fail_count > 0:
+                    await _bot_instance.send_message(
+                        user_id,
+                        f"⚠️ *Promosi Gagal Dihantar!*\n\n"
+                        f"Semua *{fail_count}* kumpulan gagal menerima mesej.\n\n"
+                        f"Kemungkinan sebab:\n"
+                        f"• Akaun anda dihadkan oleh Telegram\n"
+                        f"• Anda telah dikeluarkan dari kumpulan\n"
+                        f"• Sesi userbot tamat\n\n"
+                        f"Sila semak status akaun melalui 📚 Buat Userbot.",
+                        parse_mode="Markdown",
+                    )
             except Exception:
                 pass
 
@@ -153,6 +168,18 @@ async def restore_running_promos():
             count += 1
         else:
             await db.set_promo_running(uid, False)
+            if _bot_instance:
+                try:
+                    reason = "Sesi userbot" if not session else "Langganan"
+                    await _bot_instance.send_message(
+                        uid,
+                        f"⚠️ *Promote Auto Dihentikan*\n\n"
+                        f"{reason} anda telah tamat tempoh atau tidak aktif.\n\n"
+                        f"Sila log masuk semula melalui 📚 Buat Userbot untuk sambung semula.",
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    pass
     logger.info(f"Dipulihkan {count} promo job(s) yang berjalan")
 
 

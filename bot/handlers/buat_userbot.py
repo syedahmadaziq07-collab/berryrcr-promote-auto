@@ -6,8 +6,6 @@ handlers/buat_userbot.py — 📚 Buat Userbot:
 """
 
 import logging
-import string
-import random
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -23,6 +21,7 @@ from keyboards import (
 from services.telethon_service import (
     create_client, send_code, sign_in, get_session_string,
 )
+from services import scheduler_service
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -49,16 +48,23 @@ _pending: dict = {}   # uid → {"client", "phone", "hash"}
 # Helpers
 # ─────────────────────────────────────────────
 
+async def _cleanup_pending(uid: int):
+    """Putuskan sambungan Telethon client dan buang dari _pending dict."""
+    if uid in _pending:
+        try:
+            client = _pending[uid].get("client")
+            if client and client.is_connected():
+                await client.disconnect()
+        except Exception:
+            pass
+        finally:
+            _pending.pop(uid, None)
+
+
 def _mask_phone(phone: str) -> str:
     if len(phone) < 7:
         return phone
     return phone[:4] + "*" * (len(phone) - 6) + phone[-2:]
-
-
-def _generate_userbot_id(user_id: int) -> str:
-    chars = string.ascii_uppercase + string.digits
-    suffix = "".join(random.choices(chars, k=6))
-    return f"UB-{user_id}-{suffix}"
 
 
 async def _ask_for_phone(message: Message, state: FSMContext):
@@ -156,7 +162,7 @@ async def cb_buat_sambung_akaun(callback: CallbackQuery, state: FSMContext):
 @router.message(BuatUserbotFSM.waiting_2fa, F.text == "❌ Batal")
 async def cancel_flow(message: Message, state: FSMContext):
     uid = message.from_user.id
-    _pending.pop(uid, None)
+    await _cleanup_pending(uid)
     await state.clear()
     await message.answer(
         "❌ Dibatalkan. Kembali ke menu utama.",
@@ -214,12 +220,14 @@ async def process_phone(message: Message, state: FSMContext):
         )
     except Exception as e:
         logger.error("send_code error uid=%s: %s", uid, e)
+        await _cleanup_pending(uid)
+        await state.clear()
         await msg.edit_text(
-            f"❌ Gagal hantar OTP.\n\nRalat: `{str(e)}`\n\nSila semak nombor dan cuba lagi.",
+            "❌ Gagal menghantar kod OTP.\n\n"
+            "Sila semak nombor telefon anda dan cuba lagi.\n"
+            "Pastikan nombor bermula dengan `+` dan kod negara.",
             parse_mode="Markdown",
         )
-        _pending.pop(uid, None)
-        await state.clear()
         await message.answer("Kembali ke menu:", reply_markup=main_menu_kb())
 
 
@@ -261,20 +269,20 @@ async def process_otp(message: Message, state: FSMContext):
         logger.error("sign_in error uid=%s: %s", uid, err)
         if "PHONE_CODE_INVALID" in err:
             await msg.edit_text(
-                "❌ Kod OTP tidak sah. Sila masukkan semula (dengan jarak):"
+                "❌ Kod OTP tidak sah. Sila masukkan semula.\n\n"
+                "Contoh jika OTP `12345`: taip `1 2 3 4 5` (dengan jarak)"
             )
         elif "PHONE_CODE_EXPIRED" in err:
-            await msg.edit_text("❌ Kod OTP tamat tempoh. Sila mula semula.")
-            _pending.pop(uid, None)
+            await _cleanup_pending(uid)
             await state.clear()
+            await msg.edit_text("❌ Kod OTP telah tamat tempoh. Sila mula semula.")
             await message.answer("Kembali ke menu:", reply_markup=main_menu_kb())
         else:
-            await msg.edit_text(
-                f"❌ Gagal log masuk.\n\nRalat: `{err}`\n\nSila cuba lagi.",
-                parse_mode="Markdown",
-            )
-            _pending.pop(uid, None)
+            await _cleanup_pending(uid)
             await state.clear()
+            await msg.edit_text(
+                "❌ Pengesahan gagal. Sila cuba lagi atau hubungi @berryrcr untuk bantuan."
+            )
             await message.answer("Kembali ke menu:", reply_markup=main_menu_kb())
 
 
@@ -307,12 +315,11 @@ async def process_2fa(message: Message, state: FSMContext):
         logger.error("2fa error uid=%s (masked)", uid)
         if "PASSWORD_HASH_INVALID" in err or "The password is invalid" in err.lower():
             await msg.edit_text(
-                "❌ Kata laluan 2FA salah. Sila masukkan semula:"
+                "❌ Kata laluan 2FA tidak betul. Sila cuba lagi:"
             )
         else:
             await msg.edit_text(
-                f"❌ Ralat pengesahan.\n\n`{err}`\n\nSila cuba lagi.",
-                parse_mode="Markdown",
+                "❌ Pengesahan 2FA gagal. Sila cuba lagi atau hubungi @berryrcr untuk bantuan."
             )
 
 
@@ -325,8 +332,7 @@ async def _finalise_login(uid: int, client, phone: str, msg, state: FSMContext):
         me = await client.get_me()
         tg_username = me.username or ""
         session_str = await get_session_string(client)
-        await client.disconnect()
-        _pending.pop(uid, None)
+        await _cleanup_pending(uid)
 
         # ── Jana atau guna semula UB-ID yang sedia ada ──
         existing_ub = await db.get_userbot(uid)
@@ -334,7 +340,7 @@ async def _finalise_login(uid: int, client, phone: str, msg, state: FSMContext):
             userbot_id = existing_ub["userbot_id"]
             logger.info("_finalise_login REUSE UB-ID uid=%s userbot_id=%s", uid, userbot_id)
         else:
-            userbot_id = _generate_userbot_id(uid)
+            userbot_id = db._generate_userbot_id(uid)
             logger.info("_finalise_login GENERATE uid=%s userbot_id=%s", uid, userbot_id)
 
         # ── Step 1: Simpan session (termasuk userbot_id) ──
@@ -385,9 +391,9 @@ async def _finalise_login(uid: int, client, phone: str, msg, state: FSMContext):
 
     except Exception as e:
         logger.error("_finalise_login error uid=%s: %s", uid, e)
+        await _cleanup_pending(uid)
         await msg.edit_text(
-            f"❌ Gagal simpan sesi.\n\nRalat: `{str(e)}`\n\nSila cuba lagi.",
-            parse_mode="Markdown",
+            "❌ Gagal menyimpan sesi. Sila cuba lagi atau hubungi @berryrcr untuk bantuan.",
             reply_markup=back_to_menu_kb(),
         )
         await state.clear()
@@ -400,8 +406,10 @@ async def _finalise_login(uid: int, client, phone: str, msg, state: FSMContext):
 @router.callback_query(F.data == "disconnect_account")
 async def cb_disconnect(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
-    await db.delete_session(uid)
+    await callback.answer("⏳ Memutuskan sambungan...")
+    scheduler_service.stop_promo_job(uid)
     await db.set_promo_running(uid, False)
+    await db.delete_session(uid)
     await state.clear()
     await callback.message.answer(
         "✅ *Akaun Berjaya Diputuskan*\n\n"
@@ -410,7 +418,6 @@ async def cb_disconnect(callback: CallbackQuery, state: FSMContext):
         parse_mode="Markdown",
         reply_markup=back_to_menu_kb(),
     )
-    await callback.answer()
 
 
 # ─────────────────────────────────────────────

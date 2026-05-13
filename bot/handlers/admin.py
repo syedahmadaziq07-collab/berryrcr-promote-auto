@@ -215,9 +215,14 @@ async def cmd_sessions(message: Message):
         await message.answer("📱 Tiada akaun Telegram yang disambungkan lagi.")
         return
 
+    def _mask(p: str) -> str:
+        if not p or len(p) < 7:
+            return p
+        return p[:4] + "*" * (len(p) - 6) + p[-2:]
+
     lines = []
     for s in sessions:
-        phone = s.get("phone_number", "?")
+        phone = _mask(s.get("phone_number", "?"))
         uid = s.get("user_id", "?")
         date = str(s.get("created_at", ""))[:10]
         lines.append(f"• `{uid}` — {phone} ({date})")
@@ -326,9 +331,20 @@ async def cmd_broadcast(message: Message, bot: Bot):
         try:
             await bot.send_message(uid, full_msg, parse_mode="Markdown")
             success += 1
-        except Exception:
-            failed += 1
-        await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05)
+        except Exception as exc:
+            exc_name = type(exc).__name__
+            if exc_name == "TelegramRetryAfter":
+                wait = getattr(exc, "retry_after", 5)
+                logger.warning("Broadcast: flood limit — tunggu %ss", wait)
+                await asyncio.sleep(wait)
+                try:
+                    await bot.send_message(uid, full_msg, parse_mode="Markdown")
+                    success += 1
+                except Exception:
+                    failed += 1
+            else:
+                failed += 1
 
     await status_msg.edit_text(
         f"✅ *Broadcast Selesai*\n\n"

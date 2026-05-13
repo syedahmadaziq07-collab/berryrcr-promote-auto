@@ -4,6 +4,7 @@ from handlers.kedai import router as kedai_router
 from handlers.buat_userbot import router as buat_userbot_router
 from handlers.account import router as account_router
 from handlers.tetapan import router as tetapan_router
+from handlers.promote import router as promote_router
 from handlers.help import router as help_router
 from handlers.status import router as status_router
 from handlers.groups import router as groups_router
@@ -29,7 +30,8 @@ all_routers = [
     settings_router,        # 🔕 Pemberitahuan + 📧 Emel Sandaran
     referral_router,        # 🎁 Kod Rujukan
     expert_router,          # 🔬 Mod Lanjutan
-    tetapan_router,         # ⚙️ Tetapan (mesej, jarak masa, promote)
+    promote_router,         # 🚀 Mula/Henti Promote (reply kb + inline cb)
+    tetapan_router,         # ⚙️ Tetapan (mesej, jarak masa)
     help_router,            # ⚠️ Bantuan
     fallback_router,        # MESTI terakhir — catch-all
 ]

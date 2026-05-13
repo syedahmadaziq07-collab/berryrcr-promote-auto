@@ -211,12 +211,12 @@ async def cb_topup_pkg(callback: CallbackQuery, state: FSMContext):
     await state.update_data(coins=coins, amount=amount)
 
     text = (
-        "🧾 *ORDER SUMMARY*\n"
+        "🧾 *RINGKASAN PESANAN*\n"
         "━━━━━━━━━━━━━━━\n"
         f"- Produk   : Topup Syiling\n"
         f"- Pakej    : {coins:,} Syiling\n"
         f"- Harga    : RM{amount:.2f}\n"
-        f"- Total    : RM{amount:.2f}\n\n"
+        f"- Jumlah   : RM{amount:.2f}\n\n"
         "Sila teruskan ke pembayaran."
     )
     try:
@@ -279,11 +279,11 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
     await state.update_data(order_id=order_id, coins=coins, amount=amount)
 
     caption = (
-        "💳 *PAYMENT DETAILS*\n"
+        "💳 *BUTIRAN PEMBAYARAN*\n"
         "━━━━━━━━━━━━━━━\n"
-        f"Order ID: `{order_id}`\n"
-        f"Amount: RM{amount:.2f}\n\n"
-        "Scan QR code untuk bayar 👇\n\n"
+        f"ID Pesanan : `{order_id}`\n"
+        f"Jumlah     : RM{amount:.2f}\n\n"
+        "Imbas QR untuk bayar 👇\n\n"
         "Selepas bayar, tekan butang di bawah:"
     )
 
@@ -310,7 +310,7 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
         logger.error("topup_proceed send msg error uid=%s: %s", uid, e)
         await bot.send_message(
             uid,
-            f"⚠️ Gagal hantar QR. Sila hubungi @berryrcr.\n\nOrder ID anda: `{order_id}`",
+            f"⚠️ Gagal hantar QR kod. Sila hubungi @berryrcr.\n\nID Pesanan anda: `{order_id}`",
             parse_mode="Markdown",
         )
 
@@ -372,7 +372,7 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
 
     await message.answer(
         f"✅ Resit diterima! Pesanan anda sedang disemak oleh admin.\n"
-        f"Order ID: `{order_id}`\n\n"
+        f"ID Pesanan: `{order_id}`\n\n"
         "Anda akan dimaklumkan setelah topup diluluskan.",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
@@ -387,7 +387,7 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
             "━━━━━━━━━━━━━━━\n"
             f"👤 Username : {uname_display}\n"
             f"🆔 User ID  : `{uid}`\n"
-            f"📋 Order ID : `{order_id}`\n"
+            f"📋 ID Pesanan : `{order_id}`\n"
             f"💰 Amount   : RM{amount:.2f}\n"
             f"🪙 Syiling  : {coins:,}"
         )

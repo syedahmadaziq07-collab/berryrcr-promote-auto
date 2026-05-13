@@ -80,14 +80,22 @@ async def get_wallet(user_id: int) -> int:
 
 
 async def add_coins(user_id: int, amount: int, description: str = "Tambah syiling"):
-    """Tambah syiling ke wallet. Transaction log adalah OPTIONAL — wallet update sentiasa berjaya."""
+    """
+    Tambah syiling ke wallet secara ATOM menggunakan Supabase RPC.
+    Elak race condition — gunakan SQL: coins = coins + amount.
+    Fallback ke kaedah lama jika RPC belum dibuat.
+    """
     client = await get_client()
-    balance = await get_wallet(user_id)
-    await client.table("wallets").upsert(
-        {"user_id": user_id, "coins": balance + amount},
-        on_conflict="user_id",
-    ).execute()
-    # Optional — gagal jika column 'amount' tidak wujud dalam transactions table
+    try:
+        await client.rpc("add_coins", {"p_user_id": user_id, "p_amount": amount}).execute()
+        logger.info("add_coins RPC OK uid=%s amount=%s", user_id, amount)
+    except Exception as e:
+        logger.warning("add_coins RPC gagal uid=%s — guna fallback: %s", user_id, e)
+        balance = await get_wallet(user_id)
+        await client.table("wallets").upsert(
+            {"user_id": user_id, "coins": balance + amount},
+            on_conflict="user_id",
+        ).execute()
     try:
         await client.table("transactions").insert({
             "user_id": user_id,
@@ -96,18 +104,31 @@ async def add_coins(user_id: int, amount: int, description: str = "Tambah syilin
             "description": description,
         }).execute()
     except Exception as e:
-        logger.warning("transactions log skip uid=%s (schema mungkin tidak lengkap): %s", user_id, e)
+        logger.warning("transactions log skip uid=%s: %s", user_id, e)
 
 
 async def deduct_coins(user_id: int, amount: int, description: str = "Tolak syiling") -> bool:
-    """Tolak syiling dari wallet. Transaction log adalah OPTIONAL."""
+    """
+    Tolak syiling dari wallet secara ATOM menggunakan Supabase RPC.
+    Elak race condition — RPC akan raise exception jika baki tidak cukup.
+    Fallback ke kaedah lama jika RPC belum dibuat.
+    """
     client = await get_client()
-    balance = await get_wallet(user_id)
-    if balance < amount:
-        return False
-    await client.table("wallets").update(
-        {"coins": balance - amount}
-    ).eq("user_id", user_id).execute()
+    try:
+        await client.rpc("deduct_coins", {"p_user_id": user_id, "p_amount": amount}).execute()
+        logger.info("deduct_coins RPC OK uid=%s amount=%s", user_id, amount)
+    except Exception as e:
+        err_str = str(e).lower()
+        if "baki tidak mencukupi" in err_str or "insufficient" in err_str:
+            logger.info("deduct_coins RPC: baki tidak cukup uid=%s amount=%s", user_id, amount)
+            return False
+        logger.warning("deduct_coins RPC gagal uid=%s — guna fallback: %s", user_id, e)
+        balance = await get_wallet(user_id)
+        if balance < amount:
+            return False
+        await client.table("wallets").update(
+            {"coins": balance - amount}
+        ).eq("user_id", user_id).execute()
     try:
         await client.table("transactions").insert({
             "user_id": user_id,
@@ -116,7 +137,7 @@ async def deduct_coins(user_id: int, amount: int, description: str = "Tolak syil
             "description": description,
         }).execute()
     except Exception as e:
-        logger.warning("transactions log skip uid=%s (schema mungkin tidak lengkap): %s", user_id, e)
+        logger.warning("transactions log skip uid=%s: %s", user_id, e)
     return True
 
 
@@ -214,16 +235,6 @@ def _generate_userbot_id(user_id: int) -> str:
     chars = string.ascii_uppercase + string.digits
     suffix = "".join(random.choices(chars, k=6))
     return f"UB-{user_id}-{suffix}"
-
-
-async def get_userbot(user_id: int):
-    client = await get_client()
-    try:
-        res = await client.table("userbots").select("*").eq("owner_id", user_id).execute()
-        return res.data[0] if res.data else None
-    except Exception as e:
-        logger.warning(f"get_userbot error: {e}")
-        return None
 
 
 async def create_userbot(user_id: int) -> str:

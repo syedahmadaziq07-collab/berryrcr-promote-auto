@@ -117,84 +117,11 @@ async def msg_stop_promote(message: Message):
 
 @router.callback_query(F.data == "start_promote")
 async def cb_start_promote(callback: CallbackQuery):
-    uid = callback.from_user.id
-
-    sub = await db.get_active_subscription(uid)
-    if not sub:
-        await callback.answer(
-            "⚠️ Sila aktifkan pelan PLUS/PRO dahulu melalui 📚 Buat Userbot!",
-            show_alert=True,
-        )
-        return
-
-    session = await db.get_session(uid)
-    if not session:
-        await callback.answer(
-            "⚠️ Sila sambungkan akaun Telegram dahulu melalui 📚 Buat Userbot!",
-            show_alert=True,
-        )
-        return
-
-    settings = await db.get_promo_settings(uid)
-    if not settings or not settings.get("message_text"):
-        await callback.answer(
-            "⚠️ Sila tetapkan mesej promosi dahulu melalui 📝 Tetapkan Mesej!",
-            show_alert=True,
-        )
-        return
-
-    groups = await db.get_selected_groups(uid)
-    if not groups:
-        await callback.answer(
-            "⚠️ Sila pilih kumpulan dahulu melalui 👥 Pilih Kumpulan!",
-            show_alert=True,
-        )
-        return
-
-    if settings.get("is_running"):
-        await callback.answer("ℹ️ Promote sudah berjalan!", show_alert=True)
-        return
-
-    await db.set_promo_running(uid, True)
-    scheduler_service.start_promo_job(uid, delay_minutes=settings["delay_minutes"])
-
-    plan_name   = sub["plan"]
-    delay       = settings["delay_minutes"]
-    hours       = delay // 60
-    mins        = delay % 60
-    human_delay = f"{hours}j {mins}m" if hours > 0 else f"{mins}m"
-
-    await callback.message.edit_text(
-        f"🚀 *Promote Dimulakan!*\n\n"
-        f"📋 Pelan: *{plan_name}*\n"
-        f"👥 Kumpulan: *{len(groups)} kumpulan*\n"
-        f"⏱️ Jarak Masa: *setiap {human_delay}*\n\n"
-        f"Bot akan menghantar mesej anda ke semua kumpulan yang dipilih secara automatik.\n\n"
-        f"⚠️ _Auto-promote boleh menyebabkan akaun anda dihadkan oleh Telegram. "
-        f"Gunakan dengan berhati-hati._",
-        parse_mode="Markdown",
-        reply_markup=back_to_menu_kb(),
-    )
-    await callback.answer("🚀 Promote dimulakan!")
+    await callback.answer()
+    await _do_start_promote(callback.from_user.id, callback.message.answer)
 
 
 @router.callback_query(F.data == "stop_promote")
 async def cb_stop_promote(callback: CallbackQuery):
-    uid      = callback.from_user.id
-    settings = await db.get_promo_settings(uid)
-
-    if not settings or not settings.get("is_running"):
-        await callback.answer("ℹ️ Promote tidak sedang berjalan.", show_alert=True)
-        return
-
-    await db.set_promo_running(uid, False)
-    scheduler_service.stop_promo_job(uid)
-
-    await callback.message.edit_text(
-        "⏹️ *Promote Dihentikan*\n\n"
-        "Semua promosi automatik telah dihentikan.\n"
-        "Tekan 🚀 Mula Promote untuk memulakan semula.",
-        parse_mode="Markdown",
-        reply_markup=back_to_menu_kb(),
-    )
-    await callback.answer("⏹️ Promote dihentikan!")
+    await callback.answer()
+    await _do_stop_promote(callback.from_user.id, callback.message.answer)

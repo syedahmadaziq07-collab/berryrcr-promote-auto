@@ -1,0 +1,333 @@
+Saya ada laporan audit penuh. Sila fix semua masalah 
+mengikut keutamaan dari kritikal ke minor.
+Buat satu bahagian pada satu masa dan tunjukkan 
+fail yang diubah selepas setiap bahagian.
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 1 — FIX KRITIKAL (UTAMA)
+━━━━━━━━━━━━━━━━━━━━
+
+FIX K1-01 — promote.py tidak didaftarkan
+- Daftarkan router promote.py dalam handlers/__init__.py
+- Buang handler duplikasi antara promote.py dan tetapan.py
+- Pastikan hanya satu handler untuk setiap butang
+
+FIX K1-02 — get_userbot() didefinisikan dua kali
+- Buang definisi pertama di baris 219 dalam database.py
+- Kekalkan hanya definisi di baris 263
+
+FIX K2-01 & K2-02 — Race condition wallet
+Tukar add_coins dan deduct_coins supaya guna 
+operasi atom terus dalam Supabase:
+
+# GANTI kod lama baca-tulis dengan RPC Supabase:
+# Untuk add_coins:
+await client.rpc('add_coins', {
+    'p_user_id': user_id, 
+    'p_amount': amount
+}).execute()
+
+# Untuk deduct_coins:
+await client.rpc('deduct_coins', {
+    'p_user_id': user_id,
+    'p_amount': amount
+}).execute()
+
+# Buat fungsi RPC dalam Supabase SQL Editor:
+CREATE OR REPLACE FUNCTION add_coins(
+    p_user_id BIGINT, 
+    p_amount INTEGER
+)
+RETURNS void AS $$
+BEGIN
+    INSERT INTO wallets (user_id, coins, updated_at)
+    VALUES (p_user_id, p_amount, NOW())
+    ON CONFLICT (user_id) 
+    DO UPDATE SET 
+        coins = wallets.coins + p_amount,
+        updated_at = NOW();
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION deduct_coins(
+    p_user_id BIGINT,
+    p_amount INTEGER
+)
+RETURNS void AS $$
+BEGIN
+    UPDATE wallets 
+    SET coins = coins - p_amount,
+        updated_at = NOW()
+    WHERE user_id = p_user_id
+    AND coins >= p_amount;
+    
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Baki tidak mencukupi';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+FIX K2-04 & K2-05 — Table-table belum wujud
+Sediakan SQL lengkap untuk semua table yang diperlukan
+dan simpan dalam fail bot/setup_tables.sql:
+
+CREATE TABLE IF NOT EXISTS topup_requests (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id TEXT UNIQUE NOT NULL,
+    user_id BIGINT NOT NULL,
+    username TEXT,
+    coins INTEGER NOT NULL,
+    amount_rm NUMERIC NOT NULL,
+    receipt_file_id TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT NOW(),
+    approved_at TIMESTAMP,
+    approved_by BIGINT
+);
+
+CREATE TABLE IF NOT EXISTS broadcast_messages (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    content_type TEXT NOT NULL,
+    text_content TEXT,
+    file_id TEXT,
+    urutan INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS autoreply_channels (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    channel_id TEXT NOT NULL,
+    channel_name TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS autoreply_texts (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    teks TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS schedules (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    waktu_mula TIME NOT NULL,
+    waktu_tamat TIME NOT NULL,
+    aktif BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS referrals (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    referrer_id BIGINT NOT NULL,
+    referred_id BIGINT NOT NULL,
+    ref_code TEXT NOT NULL,
+    coins_given INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE wallets 
+ADD COLUMN IF NOT EXISTS notif_aktif BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE wallets 
+ADD COLUMN IF NOT EXISTS backup_email TEXT;
+
+ALTER TABLE promo_settings 
+ADD COLUMN IF NOT EXISTS expert_mode BOOLEAN DEFAULT FALSE;
+
+FIX K3-01 & K6-02 — disconnect tidak hentikan scheduler
+Dalam buat_userbot.py, fungsi cb_disconnect:
+- Tambah scheduler_service.stop_promo_job(uid) 
+  SEBELUM delete_session
+- Pastikan promote berhenti sebelum sesi dipadam
+
+FIX K5-02 — Telethon client leak dalam _pending
+Tambah cleanup untuk _pending dict:
+
+# Tambah fungsi cleanup:
+async def cleanup_pending(uid: int):
+    if uid in _pending:
+        try:
+            client = _pending[uid].get("client")
+            if client and client.is_connected():
+                await client.disconnect()
+        except:
+            pass
+        finally:
+            del _pending[uid]
+
+# Panggil cleanup_pending(uid) dalam:
+# 1. Bila user tekan Batal dalam OTP flow
+# 2. Bila OTP flow selesai (berjaya atau gagal)
+# 3. Tambah timeout 10 minit untuk auto-cleanup
+
+FIX K6-01 — Promote tidak mulakan segera
+Dalam start_promo_job, tambah next_run_time=datetime.now():
+
+scheduler.add_job(
+    _run_promo,
+    trigger=IntervalTrigger(minutes=delay_minutes),
+    next_run_time=datetime.now(),  # TAMBAH INI
+    id=f"promo_{user_id}",
+    ...
+)
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 2 — FIX SEDERHANA
+━━━━━━━━━━━━━━━━━━━━
+
+FIX S1-03 — Duplikasi _generate_userbot_id()
+- Buang fungsi dari buat_userbot.py
+- Gunakan db._generate_userbot_id() sahaja
+
+FIX S1-04 — Pakej topup tidak konsisten
+Tetapkan satu sumber dalam config.py:
+
+COIN_TOPUP_PACKAGES = [
+    {"coins": 300,  "price": 3.00},
+    {"coins": 600,  "price": 6.00},
+    {"coins": 900,  "price": 9.00},
+    {"coins": 1200, "price": 12.00},
+    {"coins": 3000, "price": 30.00},
+]
+
+Kemaskini keyboards.py untuk guna 
+config.COIN_TOPUP_PACKAGES sahaja.
+
+FIX S3-03 — Error Telethon dedah ke pengguna
+Gantikan semua raw error dengan mesej mesra:
+
+# GANTI:
+f"❌ Gagal hantar OTP.\n\nRalat: `{str(e)}`"
+
+# KEPADA:
+"❌ Gagal menghantar kod OTP. Sila semak nombor telefon dan cuba lagi."
+
+# GANTI:
+f"❌ Ralat pengesahan.\n\n`{err}`"
+
+# KEPADA:
+"❌ Kata laluan 2FA tidak sah. Sila cuba lagi."
+
+FIX S4-04 — Tiada sekatan topup berganda
+Sebelum buka flow topup baru, semak sama ada 
+pengguna ada topup pending:
+
+existing = await db.get_pending_topup(user_id)
+if existing:
+    await message.answer(
+        "⚠️ Anda masih ada permohonan topup yang belum diluluskan.\n"
+        f"Order ID: {existing['order_id']}\n\n"
+        "Sila tunggu kelulusan admin terlebih dahulu."
+    )
+    return
+
+FIX S6-03 — Promote gagal senyap
+Dalam _run_promo, tambah notifikasi bila semua kumpulan gagal:
+
+if success_count == 0 and fail_count > 0:
+    await bot.send_message(
+        user_id,
+        "⚠️ Promote Gagal\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Semua kumpulan gagal menerima mesej.\n"
+        "Kemungkinan akaun anda terkena had Telegram.\n"
+        "Promote telah dihentikan sementara."
+    )
+    await db.set_promo_running(user_id, False)
+
+FIX S6-05 — Tiada notifikasi bila promote auto-stop
+Dalam restore_running_promos, bila promote dihentikan:
+
+await bot.send_message(
+    user_id,
+    "⚠️ Promote Dihentikan\n"
+    "━━━━━━━━━━━━━━━━━━━━\n"
+    "Promote anda telah dihentikan secara automatik\n"
+    "kerana bot telah dimulakan semula.\n\n"
+    "Sila tekan 🚀 Mula Promote untuk sambung semula."
+)
+
+FIX S8-01 — Nombor telefon terdedah dalam /sessions
+Gantikan paparan nombor penuh dengan versi tersembunyi:
+
+# GANTI:
+phone = s.get("phone_number", "?")
+
+# KEPADA:
+phone_raw = s.get("phone_number", "")
+phone = f"{phone_raw[:4]}****{phone_raw[-2:]}" 
+        if len(phone_raw) > 6 else "****"
+
+FIX S8-03 — Broadcast boleh kena rate limit
+Tukar asyncio.sleep(0.05) kepada asyncio.sleep(0.1)
+dan tambah pengendalian RetryAfter:
+
+try:
+    await bot.send_message(uid, teks)
+    await asyncio.sleep(0.1)
+except RetryAfter as e:
+    await asyncio.sleep(e.timeout)
+    await bot.send_message(uid, teks)
+except Exception:
+    pass
+
+━━━━━━━━━━━━━━━━━━━━
+BAHAGIAN 3 — FIX UX & BAHASA
+━━━━━━━━━━━━━━━━━━━━
+
+FIX S9-01 — Butang dalam Bahasa Inggeris
+Tukar semua butang ke Bahasa Melayu Malaysia:
+
+"💳 Proceed to Payment" → "💳 Teruskan ke Pembayaran"
+"❌ Cancel Order"       → "❌ Batal Pesanan"
+"✅ I Have Paid"        → "✅ Saya Sudah Bayar"
+
+FIX S9-02 — Tiada notifikasi bila promote auto-stop
+(Sudah diliputi dalam S6-05)
+
+FIX S9-03 — Arahan OTP tidak jelas
+Tukar mesej OTP kepada:
+
+"📱 Kod OTP telah dihantar ke nombor anda.\n\n"
+"Sila taip kod OTP anda.\n"
+"Contoh: 12345\n\n"
+"⚠️ Jangan kongsi kod ini dengan sesiapa."
+
+FIX S9-04 — Tambah butang terus ke Kedai selepas topup diluluskan
+Selepas admin approve, hantar mesej dengan keyboard:
+
+await bot.send_message(
+    user_id,
+    "✅ Topup Berjaya!\n"
+    "━━━━━━━━━━━━━━━━━━━━\n"
+    f"🪙 {coins} Syiling telah dikreditkan.\n"
+    f"Order ID: {order_id}\n"
+    f"Baki semasa: {baki} Syiling",
+    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="🛒 Pergi ke Kedai", 
+            callback_data="buka_kedai"
+        )
+    ]])
+)
+
+━━━━━━━━━━━━━━━━━━━━
+PERATURAN WAJIB
+━━━━━━━━━━━━━━━━━━━━
+
+1. Buat satu bahagian pada satu masa
+2. Tunjukkan fail yang diubah selepas setiap bahagian
+3. Jangan buat laman web / API / papan pemuka
+4. Bot dijalankan dengan: cd bot && python main.py
+5. Semua teks Bahasa Melayu Malaysia
+6. Jangan guna bahasa Indonesia
+7. Selepas semua fix selesai, jalankan bot dan 
+   tunjukkan log untuk sahkan tiada error
+8. Jika ada keraguan, tanya dulu sebelum ubah

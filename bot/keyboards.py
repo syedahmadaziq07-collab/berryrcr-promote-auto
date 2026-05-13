@@ -5,6 +5,7 @@ from aiogram.types import (
     ReplyKeyboardRemove,
     KeyboardButton,
 )
+from config import COIN_TOPUP_PACKAGES
 
 
 # ─────────────────────────────────────────────
@@ -46,15 +47,10 @@ def kedai_menu_kb() -> ReplyKeyboardMarkup:
 # ─────────────────────────────────────────────
 
 def topup_packages_reply_kb() -> ReplyKeyboardMarkup:
+    rows = [[KeyboardButton(text=f"🪙 {pkg['label']}")] for pkg in COIN_TOPUP_PACKAGES]
+    rows.append([KeyboardButton(text="⬅️ Kembali")])
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🪙 300 Syiling — RM3")],
-            [KeyboardButton(text="🪙 600 Syiling — RM6")],
-            [KeyboardButton(text="🪙 900 Syiling — RM9")],
-            [KeyboardButton(text="🪙 1,200 Syiling — RM12")],
-            [KeyboardButton(text="🔥 3,000 Syiling — RM30")],
-            [KeyboardButton(text="⬅️ Kembali")],
-        ],
+        keyboard=rows,
         resize_keyboard=True,
         one_time_keyboard=False,
     )
@@ -96,19 +92,13 @@ def beli_userbot_confirm_kb(plan_key: str) -> InlineKeyboardMarkup:
 # TOPUP — Inline Keyboard: Pilih Pakej
 # ─────────────────────────────────────────────
 
-TOPUP_PACKAGES = [
-    ("300 Syiling — RM3",    300,  3.00),
-    ("600 Syiling — RM6",    600,  6.00),
-    ("900 Syiling — RM9",    900,  9.00),
-    ("1200 Syiling — RM12", 1200, 12.00),
-    ("3000 Syiling — RM30", 3000, 30.00),
-]
-
-
 def topup_packages_inline_kb() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text=label, callback_data=f"topup_pkg:{coins}:{amount:.2f}")]
-        for label, coins, amount in TOPUP_PACKAGES
+        [InlineKeyboardButton(
+            text=f"🪙 {pkg['label']}",
+            callback_data=f"topup_pkg:{pkg['coins']}:{pkg['price_rm']:.2f}",
+        )]
+        for pkg in COIN_TOPUP_PACKAGES
     ]
     buttons.append([InlineKeyboardButton(text="❌ Batal", callback_data="topup_cancel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -116,15 +106,15 @@ def topup_packages_inline_kb() -> InlineKeyboardMarkup:
 
 def topup_order_summary_kb(coins: int, amount: float) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Proceed to Payment", callback_data=f"topup_proceed:{coins}:{amount:.2f}")],
-        [InlineKeyboardButton(text="❌ Cancel Order",       callback_data="topup_cancel")],
+        [InlineKeyboardButton(text="💳 Teruskan Pembayaran", callback_data=f"topup_proceed:{coins}:{amount:.2f}")],
+        [InlineKeyboardButton(text="❌ Batal Pesanan",       callback_data="topup_cancel")],
     ])
 
 
 def topup_payment_kb(order_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ I Have Paid",  callback_data=f"topup_paid:{order_id}")],
-        [InlineKeyboardButton(text="❌ Cancel Order", callback_data="topup_cancel")],
+        [InlineKeyboardButton(text="✅ Saya Sudah Bayar",  callback_data=f"topup_paid:{order_id}")],
+        [InlineKeyboardButton(text="❌ Batal Pesanan",     callback_data="topup_cancel")],
     ])
 
 
