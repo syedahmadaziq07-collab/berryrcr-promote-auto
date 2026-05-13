@@ -13,6 +13,7 @@ Context values:
 """
 
 import logging
+import uuid
 from datetime import datetime, timezone, timedelta
 
 _MY_TZ = timezone(timedelta(hours=8))
@@ -34,6 +35,13 @@ logger = logging.getLogger(__name__)
 
 PLAN_COINS = {"PLUS": 300, "PRO": 600, "PREMIUM": 1000}
 PLAN_ICON  = {"PLUS": "⚡ PLUS", "PRO": "👑 PRO", "PREMIUM": "💎 PREMIUM"}
+
+# ─────────────────────────────────────────────
+# In-memory idempotency guard
+# Key format: "{user_id}:{message_id}"
+# Prevents duplicate deductions even if DB check is slow
+# ─────────────────────────────────────────────
+processed_subscription_purchases: set[str] = set()
 
 
 def _duration_text(plan_key: str) -> str:
@@ -124,12 +132,29 @@ async def cb_plan_dur_back(callback: CallbackQuery):
 
 
 # ─────────────────────────────────────────────
-# Langkah 2 → Proses purchase
+# Langkah 2 → Proses purchase (idempotent)
 # ─────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("plan_final:"))
 async def cb_plan_final(callback: CallbackQuery):
+    # Answer immediately so button doesn't stay loading
     await callback.answer("⏳ Memproses...")
+
+    uid        = callback.from_user.id
+    message_id = callback.message.message_id
+
+    # ── Idempotency key: unique per user + confirmation message ──
+    purchase_key = f"{uid}:{message_id}"
+
+    # ── In-memory duplicate check (fast path) ──
+    if purchase_key in processed_subscription_purchases:
+        await callback.answer("⚠️ Purchase ini sudah diproses.", show_alert=True)
+        logger.warning(
+            "[PURCHASE] duplicate_attempt=True | user_id=%s | purchase_key=%s",
+            uid, purchase_key,
+        )
+        return
+
     try:
         _, context, plan_key, months_str = callback.data.split(":")
         months   = int(months_str)
@@ -142,31 +167,54 @@ async def cb_plan_final(callback: CallbackQuery):
         await callback.message.edit_text("⚠️ Pelan tidak sah.")
         return
 
-    uid             = callback.from_user.id
     coins_per_month = PLAN_COINS[plan_key]
     total           = coins_per_month * months
     plan            = COIN_PLANS[plan_key]
     icon            = PLAN_ICON[plan_key]
 
-    balance = await db.get_wallet(uid)
-    if balance < total:
+    # ── Fetch balance BEFORE any deduction ──
+    coins_before = await db.get_wallet(uid)
+
+    logger.info(
+        "[PURCHASE] user_id=%s | plan=%s | months=%s | total=%s | coins_before=%s | purchase_key=%s",
+        uid, plan_key, months, total, coins_before, purchase_key,
+    )
+
+    if coins_before < total:
         await callback.message.edit_text(
             f"❌ *Baki tak cukup bro!*\n\n"
             f"Need: *{total:,} Syiling*\n"
-            f"Ada: *{balance:,} Syiling*\n\n"
+            f"Ada: *{coins_before:,} Syiling*\n\n"
             "Reload dulu via 🪙 Reload Syiling.",
             parse_mode="Markdown",
         )
         return
 
+    # ── Mark in-memory BEFORE DB write to block concurrent taps ──
+    processed_subscription_purchases.add(purchase_key)
+
     ok = await db.deduct_coins(uid, total, f"Aktifkan {plan['name']} {months} bulan")
     if not ok:
-        balance = await db.get_wallet(uid)
+        # Deduction failed — unmark so user can retry
+        processed_subscription_purchases.discard(purchase_key)
+        coins_after = await db.get_wallet(uid)
+        logger.error(
+            "[PURCHASE] deduct_failed | user_id=%s | plan=%s | coins_before=%s | coins_after=%s",
+            uid, plan_key, coins_before, coins_after,
+        )
         await callback.message.edit_text(
-            f"❌ *Transaksi gagal!*\n\nBalance: *{balance:,} Syiling*",
+            f"❌ *Transaksi gagal!*\n\nBalance: *{coins_after:,} Syiling*",
             parse_mode="Markdown",
         )
         return
+
+    coins_after = coins_before - total
+
+    logger.info(
+        "[PURCHASE] success | user_id=%s | plan=%s | months=%s | "
+        "coins_before=%s | coins_deducted=%s | coins_after=%s | purchase_key=%s",
+        uid, plan_key, months, coins_before, total, coins_after, purchase_key,
+    )
 
     userbot_id = None
     if context == "buy":
@@ -235,6 +283,7 @@ async def cb_plan_final(callback: CallbackQuery):
             "Bot dah ready bro! Setup group & message dekat *⚙️ Tetapan* pastu tekan 🚀 Promote! 💨"
         )
 
+    # Edit message — remove inline keyboard so Confirm button disappears
     await callback.message.edit_text(success, parse_mode="Markdown", reply_markup=back_to_menu_kb())
 
     if context in ("buy", "renew"):
