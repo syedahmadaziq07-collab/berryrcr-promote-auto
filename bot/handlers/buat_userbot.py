@@ -95,6 +95,11 @@ async def _do_send_otp(
     Hantar (atau hantar semula) OTP ke nombor telefon yang diberikan.
     Digunakan oleh process_phone dan auto-resend dalam process_otp.
     Thread-safe melalui _sending_otp debounce set.
+
+    PENTING: try block dipecah kepada DUA bahagian:
+      1. Hantar OTP (Telethon) — jika gagal, cleanup + state.clear()
+      2. Edit mesej (Telegram Bot API) — jika gagal, JANGAN cleanup/clear state
+         kerana OTP sudah berjaya dihantar dan _pending + state sudah di-set.
     """
     if uid in _sending_otp:
         logger.warning("_do_send_otp SKIP uid=%s — OTP sedang dihantar (race)", uid)
@@ -108,6 +113,8 @@ async def _do_send_otp(
     prefix = "♻️ Menghantar semula kod OTP..." if is_resend else "⏳ Menghantar kod OTP..."
     msg = await message.answer(prefix, reply_markup=remove_kb())
 
+    # ── BAHAGIAN 1: Hantar OTP via Telethon ──
+    # Jika gagal di sini, selamat untuk cleanup + clear state
     try:
         logger.info(
             "_do_send_otp: send_code uid=%s phone=%s resend=%s",
@@ -115,30 +122,60 @@ async def _do_send_otp(
         )
         client = await create_client(uid)
         phone_code_hash = await send_code(client, phone)
-        _pending[uid] = {"client": client, "phone": phone, "hash": phone_code_hash}
-        await state.update_data(phone=phone, otp_sent_at=time.time())
-        await state.set_state(BuatUserbotFSM.waiting_otp)
-        logger.info("_do_send_otp: OTP dihantar uid=%s state=waiting_otp", uid)
-        await msg.edit_text(
-            "📨 Kod OTP telah dihantar melalui Telegram rasmi.\n\n"
-            "Sila hantar kod OTP anda *dengan jarak*.\n"
-            "Contoh jika OTP `12345`:\n`1 2 3 4 5`\n\n"
-            "⏱️ Sah selama 5 minit.",
-            parse_mode="Markdown",
-        )
     except Exception as e:
-        logger.error("_do_send_otp GAGAL uid=%s: %s", uid, e)
+        logger.error("_do_send_otp: send_code GAGAL uid=%s: %s", uid, e)
         await _cleanup_pending(uid)
         await state.clear()
-        await msg.edit_text(
-            "❌ Gagal menghantar kod OTP.\n\n"
-            "Sila semak nombor telefon anda dan cuba lagi.\n"
-            "Pastikan nombor bermula dengan `+` dan kod negara.",
-            parse_mode="Markdown",
-        )
-        await message.answer("Kembali ke menu:", reply_markup=main_menu_kb())
-    finally:
+        try:
+            await msg.edit_text(
+                "❌ Gagal menghantar kod OTP.\n\n"
+                "Sila semak nombor telefon anda dan cuba lagi.\n"
+                "Pastikan nombor bermula dengan `+` dan kod negara.",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await message.answer(
+                "❌ Gagal menghantar kod OTP. Sila semak nombor dan cuba lagi.",
+                reply_markup=main_menu_kb(),
+            )
+        else:
+            await message.answer("Kembali ke menu:", reply_markup=main_menu_kb())
         _sending_otp.discard(uid)
+        return
+
+    # ── OTP berjaya dihantar — simpan state SEBELUM edit mesej ──
+    _pending[uid] = {"client": client, "phone": phone, "hash": phone_code_hash}
+    await state.update_data(phone=phone, otp_sent_at=time.time())
+    await state.set_state(BuatUserbotFSM.waiting_otp)
+    logger.info(
+        "_do_send_otp: OTP berjaya dihantar uid=%s _pending SET state=waiting_otp",
+        uid,
+    )
+
+    # ── BAHAGIAN 2: Kemaskini mesej (Bot API) ──
+    # Ini NON-FATAL — kegagalan di sini TIDAK padam _pending atau state
+    # kerana OTP sudah dihantar dan user boleh terus masukkan OTP
+    otp_text = (
+        "📨 *Kod OTP telah dihantar melalui Telegram rasmi.*\n\n"
+        "Sila hantar kod OTP anda *dengan jarak*.\n"
+        "Contoh jika OTP `12345`:\n`1 2 3 4 5`\n\n"
+        "⏱️ Sah selama 5 minit."
+    )
+    try:
+        await msg.edit_text(otp_text, parse_mode="Markdown")
+    except Exception as e:
+        logger.warning(
+            "_do_send_otp: edit_text gagal (NON-FATAL) uid=%s: %s — "
+            "_pending dan state KEKAL, user boleh hantar OTP",
+            uid, e,
+        )
+        # Hantar mesej baru sebagai fallback supaya user tahu OTP sudah dihantar
+        try:
+            await message.answer(otp_text, parse_mode="Markdown")
+        except Exception:
+            pass
+
+    _sending_otp.discard(uid)
 
 
 # ─────────────────────────────────────────────
