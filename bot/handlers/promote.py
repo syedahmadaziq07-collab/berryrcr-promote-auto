@@ -27,9 +27,11 @@ async def _do_start_promote(uid: int, send_fn):
         return
 
     settings = await db.get_promo_settings(uid)
-    if not settings or not (settings.get("message") or settings.get("message_text")):
+    userbot_id = session.get("userbot_id") or ""
+    broadcast_messages = await db.get_broadcast_messages(userbot_id) if userbot_id else []
+    if not broadcast_messages:
         await send_fn(
-            "⚠️ *Sila tetapkan mesej promosi dahulu melalui 📝 Tetapkan Mesej!*",
+            "⚠️ *Sila tambah mesej dahulu melalui 📝 Senarai Mesej Sebarkan!*",
             parse_mode="Markdown",
             reply_markup=back_to_menu_kb(),
         )
