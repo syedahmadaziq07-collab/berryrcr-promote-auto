@@ -62,21 +62,33 @@ def _send_smtp(cfg: dict, to_email: str, msg: MIMEMultipart):
     """Blocking SMTP send. Never log the password."""
     host = cfg["host"]
     port = cfg["port"]
-    logger.info("[EMAIL] smtp_connecting | host=%s port=%s user=%s", host, port, cfg["user"])
-
-    if port == 465:
-        with smtplib.SMTP_SSL(host, port, timeout=15) as server:
-            server.login(cfg["user"], cfg["password"])
-            logger.info("[EMAIL] smtp_connected | host=%s port=%s", host, port)
-            server.sendmail(cfg["from"], [to_email], msg.as_string())
-    else:
-        with smtplib.SMTP(host, port, timeout=15) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(cfg["user"], cfg["password"])
-            logger.info("[EMAIL] smtp_connected | host=%s port=%s", host, port)
-            server.sendmail(cfg["from"], [to_email], msg.as_string())
+    try:
+        logger.info("[EMAIL] smtp_connecting | host=%s port=%s user=%s", host, port, cfg["user"])
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=15) as server:
+                server.login(cfg["user"], cfg["password"])
+                logger.info("[EMAIL] smtp_connected | host=%s port=%s", host, port)
+                server.sendmail(cfg["from"], [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(host, port, timeout=15) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(cfg["user"], cfg["password"])
+                logger.info("[EMAIL] smtp_connected | host=%s port=%s", host, port)
+                server.sendmail(cfg["from"], [to_email], msg.as_string())
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error("[EMAIL] smtp_failed | reason=auth_error | host=%s port=%s | error=%s", host, port, e)
+        raise
+    except smtplib.SMTPConnectError as e:
+        logger.error("[EMAIL] smtp_failed | reason=connect_error | host=%s port=%s | error=%s", host, port, e)
+        raise
+    except smtplib.SMTPException as e:
+        logger.error("[EMAIL] smtp_failed | reason=smtp_error | host=%s port=%s | error=%s", host, port, e)
+        raise
+    except Exception as e:
+        logger.error("[EMAIL] smtp_failed | reason=unexpected | host=%s port=%s | error=%s", host, port, e)
+        raise
 
 
 async def _dispatch(cfg: dict, to_email: str, msg: MIMEMultipart, tag: str, user_id: int) -> bool:
@@ -247,6 +259,31 @@ async def send_recovery_email(
     return await _dispatch(cfg, to_email, msg, "recovery", user_id)
 
 
+async def send_backup_email(
+    to_email: str,
+    user_id: int,
+    tag: str = "confirmation",
+    userbot_id: str = "",
+    error_reason: str = "",
+) -> bool:
+    """
+    Unified helper — entry point untuk semua email backup.
+
+    tag="confirmation" → hantar confirmation email bila user save email.
+    tag="recovery"     → hantar recovery email bila session ada masalah.
+
+    Selamat: tak crash bot, tak log password/token.
+    """
+    if tag == "recovery":
+        return await send_recovery_email(
+            to_email=to_email,
+            userbot_id=userbot_id or "UNKNOWN",
+            user_id=user_id,
+            error_reason=error_reason or "Session / login problem",
+        )
+    return await send_confirmation_email(to_email=to_email, user_id=user_id)
+
+
 async def notify_session_error(user_id: int, userbot_id: str, error_reason: str):
     """
     Helper: ambil backup_email dari DB dan hantar recovery email.
@@ -258,10 +295,11 @@ async def notify_session_error(user_id: int, userbot_id: str, error_reason: str)
         if not email:
             logger.info("[EMAIL] email_skipped | tag=recovery | reason=no_backup_email | user_id=%s", user_id)
             return
-        await send_recovery_email(
+        await send_backup_email(
             to_email=email,
-            userbot_id=userbot_id or "UNKNOWN",
             user_id=user_id,
+            tag="recovery",
+            userbot_id=userbot_id or "UNKNOWN",
             error_reason=error_reason,
         )
     except Exception as e:
