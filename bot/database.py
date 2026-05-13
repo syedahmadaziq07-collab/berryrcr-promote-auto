@@ -142,8 +142,30 @@ async def deduct_coins(user_id: int, amount: int, description: str = "Tolak syil
 
 
 async def transfer_coins(from_id: int, to_id: int, amount: int, description: str = "Pindah syiling") -> bool:
-    """Pindah syiling antara dua wallet. Transaction log adalah OPTIONAL."""
+    """
+    Pindah syiling antara dua wallet secara atomic menggunakan RPC.
+    Fallback kepada 3-langkah berasingan jika RPC belum dibuat.
+    """
     client = await get_client()
+    try:
+        result = await client.rpc(
+            "transfer_coins",
+            {
+                "p_from_user_id": from_id,
+                "p_to_user_id": to_id,
+                "p_amount": amount,
+                "p_description": description,
+            },
+        ).execute()
+        if result.data and result.data.get("success"):
+            logger.info("transfer_coins RPC berjaya: %s → %s (%d syiling)", from_id, to_id, amount)
+            return True
+        error_msg = result.data.get("error", "Tidak diketahui") if result.data else "RPC tiada data"
+        logger.error("transfer_coins RPC gagal: %s", error_msg)
+        return False
+    except Exception as rpc_err:
+        logger.warning("transfer_coins RPC tidak tersedia (%s) — guna fallback 3-langkah", rpc_err)
+    # ── Fallback: 3 DB calls berasingan (tidak atomic) ──
     from_balance = await get_wallet(from_id)
     if from_balance < amount:
         return False
@@ -204,27 +226,43 @@ async def get_active_subscription(user_id: int):
             return None
 
 
+PLAN_DURATION_DAYS: dict[str, int] = {
+    "PLUS": 30,
+    "PRO": 30,
+    "PREMIUM": 30,
+}
+
+
 async def create_subscription(user_id: int, plan: str):
     """
-    Simpan subscription baru.
+    Simpan subscription baru dengan expires_at dikira secara automatik.
     Resilient: Cuba set active=False pada rekod lama dulu; jika gagal (column tiada), teruskan insert.
     """
+    from datetime import datetime, timezone, timedelta
     client = await get_client()
     try:
         await client.table("subscriptions").update({"active": False}).eq("user_id", user_id).execute()
     except Exception as e:
         logger.warning("create_subscription: update active=False gagal uid=%s: %s (column mungkin tiada)", user_id, e)
+
+    now = datetime.now(timezone.utc)
+    duration_days = PLAN_DURATION_DAYS.get(plan.upper(), 30)
+    expires_at = now + timedelta(days=duration_days)
+
     try:
-        await client.table("subscriptions").insert(
-            {"user_id": user_id, "plan": plan, "active": True}
-        ).execute()
+        await client.table("subscriptions").insert({
+            "user_id": user_id,
+            "plan": plan,
+            "active": True,
+            "created_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+        }).execute()
     except Exception as e:
-        # Column 'active' mungkin tiada — insert tanpa active
-        logger.warning("create_subscription: insert dengan active gagal uid=%s: %s — cuba tanpa active", user_id, e)
+        logger.warning("create_subscription: insert penuh gagal uid=%s: %s — cuba tanpa active/expires", user_id, e)
         await client.table("subscriptions").insert(
             {"user_id": user_id, "plan": plan}
         ).execute()
-    logger.info("create_subscription: uid=%s plan=%s berjaya disimpan", user_id, plan)
+    logger.info("create_subscription: uid=%s plan=%s tamat=%s", user_id, plan, expires_at.strftime("%Y-%m-%d"))
 
 
 # ─────────────────────────────────────────────

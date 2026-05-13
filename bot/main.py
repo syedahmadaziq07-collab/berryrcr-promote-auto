@@ -11,6 +11,7 @@ from handlers import all_routers
 from services import scheduler_service
 from services.supabase_service import get_client
 from services.sqlite_storage import SQLiteStorage
+from services.subscription_checker import check_expired_subscriptions
 
 logging.basicConfig(
     level=logging.INFO,
@@ -204,6 +205,9 @@ async def main():
     scheduler_service.start_scheduler()
     await scheduler_service.restore_running_promos()
     logger.info("Scheduler dan promo jobs dipulihkan.")
+
+    asyncio.create_task(check_expired_subscriptions())
+    logger.info("Subscription checker dimulakan (semak setiap 1 jam).")
 
     # Clear webhook so polling can work
     await bot.delete_webhook(drop_pending_updates=True)

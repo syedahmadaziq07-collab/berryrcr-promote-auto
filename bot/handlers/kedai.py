@@ -29,6 +29,20 @@ _HERE   = os.path.dirname(os.path.dirname(__file__))
 QR_PATH = os.path.join(_HERE, "media", "qr_payment.jpg")
 
 
+def _ensure_media_dir() -> None:
+    """Pastikan folder media wujud. Jika tiada QR image, log amaran sekali sahaja."""
+    os.makedirs(os.path.join(_HERE, "media"), exist_ok=True)
+    if not os.path.exists(QR_PATH):
+        logger.warning(
+            "QR image tidak dijumpai: %s — sila letak gambar QR sebenar di sana. "
+            "Bot akan gunakan teks sahaja sehingga gambar diletakkan.",
+            QR_PATH,
+        )
+
+
+_ensure_media_dir()
+
+
 # ─────────────────────────────────────────────
 # FSM States
 # ─────────────────────────────────────────────

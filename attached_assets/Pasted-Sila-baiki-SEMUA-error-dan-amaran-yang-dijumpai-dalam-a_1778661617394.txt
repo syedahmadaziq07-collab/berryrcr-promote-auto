@@ -1,0 +1,744 @@
+Sila baiki SEMUA error dan amaran yang dijumpai dalam audit bot Telegram "Promote Auto by @berryrcr". Ikut arahan ini dengan teliti.
+
+========================================
+🔴 KRITIKAL #1 — Data Loss: save_selected_groups
+========================================
+
+**FILE:** bot/database.py (line ~484)
+
+**MASALAH:**
+DELETE semua kumpulan → INSERT baru. Jika INSERT gagal, semua kumpulan user HILANG selama-lamanya.
+
+**FIX YANG DIPERLUKAN:**
+```python
+async def save_selected_groups(user_id: int, group_ids: list[int]) -> bool:
+    """
+    Simpan senarai kumpulan terpilih dengan backup untuk elak data loss.
+    """
+    try:
+        # 1. BACKUP kumpulan lama dulu
+        backup_query = """
+        SELECT group_id FROM selected_groups 
+        WHERE user_id = %s
+        """
+        backup_result = supabase.rpc('execute_sql', {
+            'query': backup_query,
+            'params': [user_id]
+        }).execute()
+        
+        old_groups = [row['group_id'] for row in backup_result.data] if backup_result.data else []
+        
+        # 2. DELETE kumpulan lama
+        supabase.table('selected_groups').delete().eq('user_id', user_id).execute()
+        
+        # 3. INSERT kumpulan baru
+        if group_ids:
+            rows = [{'user_id': user_id, 'group_id': gid} for gid in group_ids]
+            insert_result = supabase.table('selected_groups').insert(rows).execute()
+            
+            # 4. VERIFY insert berjaya
+            if not insert_result.data:
+                # INSERT GAGAL! Pulihkan backup
+                if old_groups:
+                    restore_rows = [{'user_id': user_id, 'group_id': gid} for gid in old_groups]
+                    supabase.table('selected_groups').insert(restore_rows).execute()
+                    logging.error(f"[save_selected_groups] INSERT gagal, backup dipulihkan untuk user {user_id}")
+                return False
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"[save_selected_groups] Error: {e}")
+        # Jika error, cuba pulihkan backup
+        if old_groups:
+            try:
+                restore_rows = [{'user_id': user_id, 'group_id': gid} for gid in old_groups]
+                supabase.table('selected_groups').insert(restore_rows).execute()
+                logging.info(f"[save_selected_groups] Backup dipulihkan untuk user {user_id}")
+            except:
+                pass
+        return False
+```
+
+**LOKASI EXACT:** Cari function `save_selected_groups` dalam bot/database.py dan replace keseluruhan function dengan code di atas.
+
+========================================
+🔴 KRITIKAL #2 — Data Loss: transfer_userbot_session
+========================================
+
+**FILE:** bot/database.py (line ~446)
+
+**MASALAH:**
+DELETE session lama → upsert ke user baru. Jika upsert gagal, session hilang selamanya.
+
+**FIX YANG DIPERLUKAN:**
+```python
+async def transfer_userbot_session(from_user_id: int, to_user_id: int, userbot_id: str) -> bool:
+    """
+    Pindah session userbot dari satu user ke user lain.
+    ATOMIC: upsert dulu, baru delete. Jika upsert gagal, session lama kekal selamat.
+    """
+    try:
+        # 1. Dapatkan session lama
+        old_session = supabase.table('sessions')\
+            .select('*')\
+            .eq('user_id', from_user_id)\
+            .eq('userbot_id', userbot_id)\
+            .single()\
+            .execute()
+        
+        if not old_session.data:
+            logging.error(f"[transfer_userbot_session] Session tidak dijumpai: {userbot_id}")
+            return False
+        
+        session_data = old_session.data
+        
+        # 2. UPSERT ke user baru DULU (sebelum delete lama)
+        new_session = {
+            'user_id': to_user_id,
+            'userbot_id': userbot_id,
+            'session_string': session_data['session_string'],
+            'tg_username': session_data.get('tg_username'),
+            'connected_at': session_data.get('connected_at'),
+            'is_active': session_data.get('is_active', True),
+            'backup_email': session_data.get('backup_email'),
+        }
+        
+        upsert_result = supabase.table('sessions').upsert(new_session).execute()
+        
+        # 3. VERIFY upsert berjaya
+        if not upsert_result.data:
+            logging.error(f"[transfer_userbot_session] Upsert gagal untuk user {to_user_id}")
+            raise Exception("Upsert session gagal")
+        
+        # 4. Baru DELETE session lama (selepas verify upsert OK)
+        supabase.table('sessions')\
+            .delete()\
+            .eq('user_id', from_user_id)\
+            .eq('userbot_id', userbot_id)\
+            .execute()
+        
+        logging.info(f"[transfer_userbot_session] Berjaya pindah {userbot_id} dari {from_user_id} ke {to_user_id}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"[transfer_userbot_session] Error: {e}")
+        # Session lama kekal selamat kerana DELETE tidak dipanggil jika upsert gagal
+        return False
+```
+
+**LOKASI EXACT:** Cari function `transfer_userbot_session` dalam bot/database.py dan replace keseluruhan function dengan code di atas.
+
+========================================
+🔴 KRITIKAL #3 — No FloodWait Handling (scheduler)
+========================================
+
+**FILE:** bot/services/scheduler_service.py (line ~118 dalam function `_run_promo`)
+
+**MASALAH:**
+FloodWaitError ditangkap sebagai generic exception, tidak sleep, terus ke kumpulan seterusnya — ini akan terus trigger flood limit sehingga akaun banned.
+
+**FIX YANG DIPERLUKAN:**
+
+Cari function `_run_promo` dalam scheduler_service.py. Dalam loop hantar mesej, tambah handling FloodWaitError:
+
+```python
+async def _run_promo(self, user_id: int, userbot_id: str):
+    """
+    Promo loop — hantar mesej ke semua kumpulan dengan flood wait handling.
+    """
+    try:
+        # ... (existing code untuk dapatkan groups, message, dll)
+        
+        total_flood_wait = 0  # Track total waiting time
+        MAX_FLOOD_WAIT = 300  # 5 minit max
+        
+        for group in groups:
+            try:
+                # Semak jadual aktif sebelum hantar
+                if not await is_schedule_active(user_id):
+                    logging.info(f"[_run_promo] Jadual tidak aktif, skip user {user_id}")
+                    return
+                
+                # Hantar mesej
+                success = await telethon_service.send_message_to_group(
+                    session_string=session_string,
+                    group_id=group['group_id'],
+                    message=message_text
+                )
+                
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+                
+            except FloodWaitError as flood_err:
+                # HANDLE FLOOD WAIT dengan sleep
+                wait_seconds = flood_err.seconds
+                logging.warning(f"[_run_promo] FloodWait {wait_seconds}s untuk user {user_id}")
+                
+                total_flood_wait += wait_seconds
+                
+                # Jika total flood wait melebihi 5 minit, STOP promo
+                if total_flood_wait > MAX_FLOOD_WAIT:
+                    logging.error(f"[_run_promo] Total flood wait {total_flood_wait}s melebihi had. Stop promo untuk user {user_id}")
+                    
+                    # Matikan promo automatik
+                    await database.update_promo_settings(user_id, {'is_running': False})
+                    
+                    # Notifikasi user
+                    if notif_aktif:
+                        await bot.send_message(
+                            user_id,
+                            "⚠️ *Promo Dihentikan Automatik*\n\n"
+                            f"Akaun Telegram anda kena had kadar (flood limit) terlalu lama ({total_flood_wait//60} minit).\n\n"
+                            "Sila tunggu beberapa jam sebelum aktifkan semula promo.\n\n"
+                            "💡 Tips: Kurangkan kekerapan hantar atau kurangkan bilangan kumpulan.",
+                            parse_mode='Markdown'
+                        )
+                    return  # Exit promo loop
+                
+                # Sleep mengikut flood wait time
+                await asyncio.sleep(wait_seconds)
+                
+                # Retry hantar ke kumpulan yang sama selepas sleep
+                try:
+                    success = await telethon_service.send_message_to_group(
+                        session_string=session_string,
+                        group_id=group['group_id'],
+                        message=message_text
+                    )
+                    if success:
+                        sent_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as retry_err:
+                    logging.error(f"[_run_promo] Retry gagal: {retry_err}")
+                    failed_count += 1
+            
+            except Exception as e:
+                logging.error(f"[_run_promo] Error hantar ke group {group['group_id']}: {e}")
+                failed_count += 1
+        
+        # ... (existing code untuk notifikasi berjaya/gagal)
+        
+    except Exception as e:
+        logging.error(f"[_run_promo] Fatal error: {e}")
+```
+
+**IMPORT YANG DIPERLUKAN:**
+Tambah di bahagian atas scheduler_service.py:
+```python
+from telethon.errors import FloodWaitError
+```
+
+========================================
+🔴 KRITIKAL #4 — No FloodWait Propagation (telethon)
+========================================
+
+**FILE:** bot/services/telethon_service.py (line ~78 dalam function `send_message_to_group`)
+
+**MASALAH:**
+FloodWaitError tidak dibezakan dari exception lain, scheduler tidak dapat handle dengan betul.
+
+**FIX YANG DIPERLUKAN:**
+
+Cari function `send_message_to_group` dalam telethon_service.py:
+
+```python
+async def send_message_to_group(
+    session_string: str,
+    group_id: int,
+    message: str,
+    api_id: int = None,
+    api_hash: str = None
+) -> bool:
+    """
+    Hantar mesej ke kumpulan menggunakan Telethon client.
+    Raise FloodWaitError untuk handling di scheduler.
+    """
+    client = None
+    try:
+        # ... (existing code untuk create client)
+        
+        await client.send_message(group_id, message)
+        logging.info(f"[send_message_to_group] Berjaya hantar ke group {group_id}")
+        return True
+        
+    except FloodWaitError as flood_err:
+        # PROPAGATE FloodWaitError ke scheduler untuk handling proper
+        logging.warning(f"[send_message_to_group] FloodWait {flood_err.seconds}s untuk group {group_id}")
+        raise flood_err  # Re-raise supaya scheduler boleh handle
+        
+    except Exception as e:
+        logging.error(f"[send_message_to_group] Error: {e}")
+        return False
+        
+    finally:
+        if client:
+            await client.disconnect()
+```
+
+**IMPORT YANG DIPERLUKAN:**
+Tambah di bahagian atas telethon_service.py:
+```python
+from telethon.errors import FloodWaitError
+```
+
+========================================
+⚠️ AMARAN #1 — In-Memory State Loss on Restart
+========================================
+
+**FILE:** bot/handlers/buat_userbot.py (line ~45), bot/handlers/groups.py (line ~19)
+
+**MASALAH:**
+`_pending`, `_temp_groups`, `_temp_selected` adalah dict dalam memory — hilang jika bot restart.
+
+**FIX (OPTIONAL - ENHANCEMENT):**
+
+Tukar kepada SQLite atau Redis untuk persistent storage, ATAU tambah recovery mechanism:
+
+```python
+# Di bahagian atas file, selepas imports
+import json
+import os
+
+PENDING_FILE = 'data/pending_otp.json'
+TEMP_GROUPS_FILE = 'data/temp_groups.json'
+
+# Ensure data directory exists
+os.makedirs('data', exist_ok=True)
+
+# Load from disk on startup
+def _load_state():
+    global _pending, _temp_groups
+    try:
+        if os.path.exists(PENDING_FILE):
+            with open(PENDING_FILE, 'r') as f:
+                _pending = json.load(f)
+        if os.path.exists(TEMP_GROUPS_FILE):
+            with open(TEMP_GROUPS_FILE, 'r') as f:
+                _temp_groups = json.load(f)
+    except Exception as e:
+        logging.error(f"[_load_state] Error: {e}")
+
+# Save to disk after changes
+def _save_state():
+    try:
+        with open(PENDING_FILE, 'w') as f:
+            json.dump(_pending, f)
+        with open(TEMP_GROUPS_FILE, 'w') as f:
+            json.dump(_temp_groups, f)
+    except Exception as e:
+        logging.error(f"[_save_state] Error: {e}")
+
+# Call _load_state() on module load
+_load_state()
+
+# Call _save_state() setiap kali modify _pending atau _temp_groups
+```
+
+**Nota:** Ini optional sahaja. Tidak kritikal kerana user boleh ulangi flow.
+
+========================================
+⚠️ AMARAN #2 — transfer_coins() Not Atomic
+========================================
+
+**FILE:** bot/database.py (line ~144)
+
+**MASALAH:**
+3 DB calls berasingan (deduct → add → log), race condition possible.
+
+**FIX YANG DIPERLUKAN:**
+
+Buat Supabase RPC function untuk atomic transfer:
+
+**1. Cipta function dalam Supabase SQL Editor:**
+
+```sql
+CREATE OR REPLACE FUNCTION transfer_coins(
+    p_from_user_id INT,
+    p_to_user_id INT,
+    p_amount INT,
+    p_description TEXT DEFAULT 'Transfer'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_from_balance INT;
+BEGIN
+    -- 1. Lock dan check balance sender
+    SELECT balance INTO v_from_balance
+    FROM wallets
+    WHERE user_id = p_from_user_id
+    FOR UPDATE;
+    
+    IF v_from_balance IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Sender wallet not found');
+    END IF;
+    
+    IF v_from_balance < p_amount THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Insufficient balance');
+    END IF;
+    
+    -- 2. Deduct dari sender
+    UPDATE wallets
+    SET balance = balance - p_amount
+    WHERE user_id = p_from_user_id;
+    
+    -- 3. Add ke receiver
+    UPDATE wallets
+    SET balance = balance + p_amount
+    WHERE user_id = p_to_user_id;
+    
+    -- 4. Log transaction
+    INSERT INTO transactions (user_id, amount, transaction_type, description)
+    VALUES 
+        (p_from_user_id, -p_amount, 'transfer_out', p_description),
+        (p_to_user_id, p_amount, 'transfer_in', p_description);
+    
+    RETURN jsonb_build_object('success', true);
+    
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'error', SQLERRM);
+END;
+$$;
+```
+
+**2. Update function dalam database.py:**
+
+```python
+async def transfer_coins(from_user_id: int, to_user_id: int, amount: int, description: str = "Transfer") -> bool:
+    """
+    Transfer syiling secara atomic menggunakan RPC.
+    """
+    try:
+        result = supabase.rpc('transfer_coins', {
+            'p_from_user_id': from_user_id,
+            'p_to_user_id': to_user_id,
+            'p_amount': amount,
+            'p_description': description
+        }).execute()
+        
+        if result.data and result.data.get('success'):
+            logging.info(f"[transfer_coins] Berjaya transfer {amount} coins dari {from_user_id} ke {to_user_id}")
+            return True
+        else:
+            error = result.data.get('error', 'Unknown error') if result.data else 'RPC failed'
+            logging.error(f"[transfer_coins] Gagal: {error}")
+            return False
+            
+    except Exception as e:
+        logging.error(f"[transfer_coins] Error: {e}")
+        return False
+```
+
+========================================
+⚠️ AMARAN #3 — Subscription expires_at Not Calculated
+========================================
+
+**FILE:** bot/database.py (line ~218 dalam `create_subscription`)
+
+**MASALAH:**
+expires_at tidak dikira/disimpan. Subscription tidak tamat automatik.
+
+**FIX YANG DIPERLUKAN:**
+
+```python
+from datetime import datetime, timedelta
+
+async def create_subscription(user_id: int, plan_name: str, duration_days: int) -> bool:
+    """
+    Cipta subscription dengan expires_at calculation.
+    """
+    try:
+        # 1. Matikan subscription lama
+        try:
+            supabase.table('subscriptions')\
+                .update({'active': False})\
+                .eq('user_id', user_id)\
+                .eq('active', True)\
+                .execute()
+        except Exception:
+            pass  # Fallback jika column active tiada
+        
+        # 2. Kira expires_at
+        now = datetime.utcnow()
+        expires_at = now + timedelta(days=duration_days)
+        
+        # 3. Cipta subscription baru
+        new_sub = {
+            'user_id': user_id,
+            'plan_name': plan_name,
+            'active': True,
+            'created_at': now.isoformat(),
+            'expires_at': expires_at.isoformat()
+        }
+        
+        result = supabase.table('subscriptions').insert(new_sub).execute()
+        
+        if result.data:
+            logging.info(f"[create_subscription] Berjaya cipta {plan_name} untuk user {user_id}, tamat pada {expires_at}")
+            return True
+        return False
+        
+    except Exception as e:
+        logging.error(f"[create_subscription] Error: {e}")
+        return False
+```
+
+**Tambah cron job untuk auto-matikan expired subscriptions:**
+
+Cipta file baru: `bot/services/subscription_checker.py`
+
+```python
+import asyncio
+import logging
+from datetime import datetime
+from database import supabase
+
+async def check_expired_subscriptions():
+    """
+    Semak dan matikan subscription yang tamat tempoh.
+    Jalankan setiap 1 jam.
+    """
+    while True:
+        try:
+            now = datetime.utcnow().isoformat()
+            
+            # Cari subscription yang tamat dan masih aktif
+            expired = supabase.table('subscriptions')\
+                .select('id, user_id, plan_name')\
+                .eq('active', True)\
+                .lt('expires_at', now)\
+                .execute()
+            
+            if expired.data:
+                for sub in expired.data:
+                    # Matikan subscription
+                    supabase.table('subscriptions')\
+                        .update({'active': False})\
+                        .eq('id', sub['id'])\
+                        .execute()
+                    
+                    logging.info(f"[check_expired_subscriptions] Matikan subscription {sub['plan_name']} untuk user {sub['user_id']}")
+            
+        except Exception as e:
+            logging.error(f"[check_expired_subscriptions] Error: {e}")
+        
+        # Sleep 1 jam
+        await asyncio.sleep(3600)
+```
+
+**Daftarkan dalam main.py:**
+
+```python
+from services.subscription_checker import check_expired_subscriptions
+
+async def main():
+    # ... existing code
+    
+    # Start subscription checker
+    asyncio.create_task(check_expired_subscriptions())
+    
+    # ... existing code
+```
+
+========================================
+⚠️ AMARAN #5 — QR Image Might Not Exist
+========================================
+
+**FILE:** bot/handlers/kedai.py (line ~29)
+
+**MASALAH:**
+QR_PATH = 'bot/media/qr_payment.jpg' mungkin tidak wujud. Ada fallback tapi user tidak dapat scan QR.
+
+**FIX YANG DIPERLUKAN:**
+
+**1. Cipta directory dan placeholder image:**
+
+```bash
+mkdir -p bot/media
+```
+
+**2. Download QR code image** (atau create placeholder) dan simpan sebagai `bot/media/qr_payment.jpg`
+
+**3. Atau tambah check dan create placeholder:**
+
+Dalam kedai.py, tambah function:
+
+```python
+import os
+from PIL import Image, ImageDraw, ImageFont
+
+def ensure_qr_image_exists():
+    """
+    Pastikan QR image wujud. Jika tidak, cipta placeholder.
+    """
+    QR_PATH = 'bot/media/qr_payment.jpg'
+    
+    if os.path.exists(QR_PATH):
+        return
+    
+    # Cipta directory jika tidak wujud
+    os.makedirs('bot/media', exist_ok=True)
+    
+    # Cipta placeholder image
+    img = Image.new('RGB', (400, 400), color='white')
+    draw = ImageDraw.Draw(img)
+    
+    # Add text
+    text = "QR CODE\nPLACEHOLDER\n\nSila ganti dengan\nQR code sebenar"
+    draw.text((200, 200), text, fill='black', anchor='mm')
+    
+    img.save(QR_PATH)
+    logging.info(f"[ensure_qr_image_exists] Placeholder QR created: {QR_PATH}")
+
+# Call pada startup
+ensure_qr_image_exists()
+```
+
+========================================
+⚠️ AMARAN #6 — backup_email Column Missing
+========================================
+
+**FILE:** bot/database.py (line ~1134)
+
+**MASALAH:**
+`backup_email` column tidak dalam SQL schema.
+
+**FIX YANG DIPERLUKAN:**
+
+**Jalankan dalam Supabase SQL Editor:**
+
+```sql
+ALTER TABLE sessions 
+ADD COLUMN IF NOT EXISTS backup_email TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_sessions_backup_email 
+ON sessions(backup_email);
+```
+
+========================================
+⚠️ AMARAN #7 — Supabase RPC Functions Missing
+========================================
+
+**FILE:** bot/setup_tables.sql
+
+**MASALAH:**
+RPC functions `add_coins` dan `deduct_coins` perlu dicipta manual.
+
+**FIX YANG DIPERLUKAN:**
+
+**Jalankan dalam Supabase SQL Editor:**
+
+```sql
+-- Function untuk add coins secara atomic
+CREATE OR REPLACE FUNCTION add_coins(
+    p_user_id INT,
+    p_amount INT,
+    p_description TEXT DEFAULT 'Top up'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Update balance
+    UPDATE wallets
+    SET balance = balance + p_amount
+    WHERE user_id = p_user_id;
+    
+    -- Log transaction
+    INSERT INTO transactions (user_id, amount, transaction_type, description)
+    VALUES (p_user_id, p_amount, 'credit', p_description);
+    
+    RETURN jsonb_build_object('success', true);
+    
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'error', SQLERRM);
+END;
+$$;
+
+-- Function untuk deduct coins secara atomic
+CREATE OR REPLACE FUNCTION deduct_coins(
+    p_user_id INT,
+    p_amount INT,
+    p_description TEXT DEFAULT 'Purchase'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_balance INT;
+BEGIN
+    -- Lock dan check balance
+    SELECT balance INTO v_balance
+    FROM wallets
+    WHERE user_id = p_user_id
+    FOR UPDATE;
+    
+    IF v_balance IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Wallet not found');
+    END IF;
+    
+    IF v_balance < p_amount THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Insufficient balance');
+    END IF;
+    
+    -- Deduct balance
+    UPDATE wallets
+    SET balance = balance - p_amount
+    WHERE user_id = p_user_id;
+    
+    -- Log transaction
+    INSERT INTO transactions (user_id, amount, transaction_type, description)
+    VALUES (p_user_id, -p_amount, 'debit', p_description);
+    
+    RETURN jsonb_build_object('success', true);
+    
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'error', SQLERRM);
+END;
+$$;
+```
+
+========================================
+📋 CHECKLIST UNTUK REPLIT AGENT
+========================================
+
+Sila lakukan fix mengikut urutan ini:
+
+☐ 1. Fix KRITIKAL #1 — save_selected_groups dengan backup mechanism
+☐ 2. Fix KRITIKAL #2 — transfer_userbot_session atomic operation
+☐ 3. Fix KRITIKAL #3 — FloodWait handling dalam scheduler_service.py
+☐ 4. Fix KRITIKAL #4 — FloodWait propagation dalam telethon_service.py
+☐ 5. Fix AMARAN #2 — transfer_coins() RPC function
+☐ 6. Fix AMARAN #3 — Subscription expires_at + checker service
+☐ 7. Fix AMARAN #5 — Ensure QR image exists
+☐ 8. Fix AMARAN #6 — Add backup_email column
+☐ 9. Fix AMARAN #7 — Create RPC functions add_coins/deduct_coins
+
+☐ 10. JALANKAN bot/setup_tables.sql dalam Supabase SQL Editor
+☐ 11. VERIFY bot start tanpa error
+☐ 12. TEST full flow dari topup sampai promote berjaya
+
+========================================
+⚠️ PENTING
+========================================
+
+1. **Backup dahulu** — Sebelum fix, commit semua code ke GitHub
+2. **Test selepas setiap fix** — Jangan fix semua sekaligus
+3. **Verify imports** — Pastikan semua import statement lengkap
+4. **Check indentation** — Python sensitive pada indentation
+5. **Log everything** — Tambah logging.info/error untuk debugging
+
+Selepas semua fix, WAJIB test full user journey:
+/start → Topup → Beli Userbot → Beli Pelan → OTP Login → Pilih Kumpulan → Set Mesej → Mula Promote
+
+Laporkan setiap error yang muncul dengan:
+- File name + line number
+- Full error traceback
+- Steps to reproduce
+
+Adakah anda faham dan bersedia untuk fix semua issue ini?

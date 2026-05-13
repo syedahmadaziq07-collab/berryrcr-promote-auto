@@ -255,6 +255,59 @@ BEGIN
 END;
 $$;
 
+-- ─────────────────────────────────────────────
+-- RPC: transfer_coins (atomic, elak race condition)
+-- Guna p_from_user_id, p_to_user_id, p_amount, p_description
+-- ─────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION transfer_coins(
+    p_from_user_id BIGINT,
+    p_to_user_id   BIGINT,
+    p_amount       INTEGER,
+    p_description  TEXT DEFAULT 'Transfer'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_from_coins INTEGER;
+BEGIN
+    -- Lock baris sender dan semak baki
+    SELECT coins INTO v_from_coins
+    FROM wallets
+    WHERE user_id = p_from_user_id
+    FOR UPDATE;
+
+    IF v_from_coins IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Wallet penghantar tidak dijumpai');
+    END IF;
+
+    IF v_from_coins < p_amount THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Baki tidak mencukupi');
+    END IF;
+
+    -- Tolak dari penghantar
+    UPDATE wallets SET coins = coins - p_amount WHERE user_id = p_from_user_id;
+
+    -- Tambah ke penerima (upsert supaya wallet penerima dicipta jika belum wujud)
+    INSERT INTO wallets (user_id, coins)
+    VALUES (p_to_user_id, p_amount)
+    ON CONFLICT (user_id)
+    DO UPDATE SET coins = wallets.coins + p_amount;
+
+    -- Log kedua-dua belah
+    INSERT INTO transactions (user_id, type, amount, description)
+    VALUES
+        (p_from_user_id, 'debit',  p_amount, 'Hantar ke ' || p_to_user_id || ' — ' || p_description),
+        (p_to_user_id,   'credit', p_amount, 'Terima dari ' || p_from_user_id || ' — ' || p_description);
+
+    RETURN jsonb_build_object('success', true);
+
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'error', SQLERRM);
+END;
+$$;
+
 -- ============================================================
 -- SELESAI — Semua table, column, index dan fungsi RPC
 -- telah berjaya dicipta / dikemaskini
