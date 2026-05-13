@@ -1,0 +1,119 @@
+JANGAN buat web/dashboard/API server. Telegram bot Python aiogram sahaja.
+
+Audit dan polish bot sampai beta production ready.
+
+Status sekarang:
+Bot sudah 75–85% siap dan beberapa sistem sudah berfungsi:
+- Kedai
+- Wallet / syiling
+- Topup flow
+- Admin approve/reject
+- GitHub sync
+- Northflank auto deploy
+- Userbot ID generation
+- Subscription structure
+- Scheduler/promo system
+- Supabase integration
+
+Tetapi masih ada beberapa isu yang perlu difix sepenuhnya:
+
+1. Duplicate handlers
+- Audit semua message handlers, callback handlers, fallback handlers.
+- Pastikan satu text/button hanya trigger satu handler.
+- Fallback “Sila gunakan menu di bawah untuk navigasi” jangan trigger dalam flow aktif.
+- Catch-all handler mesti paling bawah.
+
+2. Button loading lambat
+- Semua callback_query handler mesti panggil await callback.answer() seawal mungkin.
+- DB/network heavy task mesti berlaku selepas callback.answer().
+- Tambah try/except supaya bot tidak crash.
+
+3. Userbot registry/login recovery
+Definisi flow yang betul:
+- 🛍 Beli Userbot = beli slot userbot baru guna syiling, generate ID Userbot, simpan ke table userbots.
+- 📚 Buat Userbot = sambungkan akaun Telegram guna OTP kepada userbot yang sudah dibeli.
+- 🔑 Log Masuk Token = restore/pindah akses userbot lama guna ID Userbot.
+
+Masalah sekarang:
+- User masukkan ID seperti UB-5363369071-EE8K0C tapi bot kata ID tidak dijumpai.
+- Audit userbots, sessions, save_session, get_session_by_userbot_id, account.py, buat_userbot.py, subscription.py, kedai.py.
+- Pastikan Beli Userbot simpan userbot_id ke userbots table.
+- Pastikan Buat Userbot link session ke userbot_id.
+- Pastikan Log Masuk Token lookup userbots table dahulu, bukan sessions sahaja.
+- Pastikan Kedai paparkan ID Userbot dari userbots table.
+
+4. Sessions save consistency
+- Hilangkan silent fallback yang save session tanpa userbot_id.
+- Kalau column userbot_id tidak wujud, log error jelas dan print SQL migration.
+- Save session mesti simpan:
+  user_id
+  userbot_id
+  phone
+  session_string
+  tg_username
+  connected_at
+
+5. Conflict polling cleanup
+- Pastikan hanya satu bot instance running.
+- delete_webhook(drop_pending_updates=True) sebelum start_polling.
+- Jangan duplicate start_polling.
+- Log startup jelas: bot id, username, environment.
+
+6. Plan purchase flow polish
+- Kedai mesti ada flow jelas:
+  Topup Syiling
+  → Beli Userbot
+  → Dapat ID Userbot
+  → Beli Plan PLUS/PRO
+  → Buat Userbot / Sambung Akaun
+  → Pilih group
+  → Tetapkan mesej
+  → Tetapkan jarak masa
+  → Mula Promote
+
+- Pastikan Beli Userbot dan Beli Plan ialah dua benda berbeza.
+- Pelan Aktif mesti update selepas plan dibeli.
+- Jika user belum beli userbot, jangan benarkan beli plan.
+
+7. Topup flow cleanup
+- Buang flow lama “Permintaan Topup Diterima / Hubungi admin / addcoin manual”.
+- Kekalkan satu flow sahaja:
+  ORDER SUMMARY
+  → Proceed to Payment
+  → QR payment
+  → I Have Paid
+  → Upload resit
+  → Admin Approve/Reject
+
+8. Error handling
+- Semua Supabase operation wrap try/except.
+- Kalau DB gagal, bot reply mesra dan log error sebenar.
+- Jangan crash bot.
+- Jangan biarkan button loading.
+
+9. Supabase schema
+- Audit semua table:
+  wallets
+  transactions
+  topup_requests
+  userbots
+  sessions
+  subscriptions
+  promo_settings
+  selected_groups
+- Print SQL migration lengkap jika ada column hilang.
+
+Output selepas selesai:
+- Senaraikan file yang diubah.
+- Senaraikan root cause setiap isu.
+- Confirm bot restarted/running.
+- Confirm flow yang sudah tested:
+  /start
+  Kedai
+  Topup
+  Approve
+  Beli Userbot
+  Buat Userbot
+  Log Masuk Token
+  Pilih Group
+  Mula Promote
