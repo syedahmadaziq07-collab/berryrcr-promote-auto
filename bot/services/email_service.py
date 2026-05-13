@@ -1,38 +1,36 @@
 """
-services/email_service.py — SMTP recovery email sender.
+services/email_service.py — SMTP recovery + confirmation email sender.
 
-Hantar email recovery kepada user bila session/userbot ada masalah.
-Guna environment variables: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM.
-
+Env vars: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
 Rules:
-- Jangan crash bot kalau SMTP belum set.
-- Jangan hantar OTP, session_string, API_HASH, BOT_TOKEN.
-- Hantar Userbot ID sahaja untuk recovery reference.
+- Jangan crash bot kalau SMTP gagal.
+- Jangan log password/token.
+- Hantar Userbot ID sahaja untuk recovery — tiada session string, API key, dsb.
 """
 
 import asyncio
 import logging
 import os
-import smtplib
 import re
-from email.mime.text import MIMEText
+import smtplib
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 logger = logging.getLogger(__name__)
 
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 
 
+# ─────────────────────────────────────────────
+# Config helper
+# ─────────────────────────────────────────────
+
 def _smtp_config() -> dict | None:
-    """
-    Baca SMTP config dari env.
-    Return None kalau mana-mana field kritikal hilang — bot tak crash.
-    """
-    host  = os.getenv("SMTP_HOST", "").strip()
-    port  = os.getenv("SMTP_PORT", "587").strip()
-    user  = os.getenv("SMTP_USER", "").strip()
-    pwd   = os.getenv("SMTP_PASS", "").strip()
-    frm   = os.getenv("SMTP_FROM", "").strip() or user
+    host = os.getenv("SMTP_HOST", "").strip()
+    port = os.getenv("SMTP_PORT", "587").strip()
+    user = os.getenv("SMTP_USER", "").strip()
+    pwd  = os.getenv("SMTP_PASS", "").strip()
+    frm  = os.getenv("SMTP_FROM", "").strip() or user
 
     if not all([host, user, pwd]):
         return None
@@ -49,13 +47,111 @@ def _is_smtp_configured() -> bool:
     return _smtp_config() is not None
 
 
-def _build_recovery_email(userbot_id: str, user_id: int, error_reason: str) -> MIMEMultipart:
-    """Bina email recovery — selamat, tiada sensitive data."""
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Promote Auto - Userbot Recovery"
-    msg["From"]    = _smtp_config().get("from", "")
+def smtp_status() -> str:
+    if _is_smtp_configured():
+        cfg = _smtp_config()
+        return f"✅ SMTP configured ({cfg['host']}:{cfg['port']}, user={cfg['user']})"
+    return "❌ SMTP not configured (SMTP_HOST/SMTP_USER/SMTP_PASS not set)"
 
-    body_text = (
+
+# ─────────────────────────────────────────────
+# Low-level SMTP send (blocking — run in executor)
+# ─────────────────────────────────────────────
+
+def _send_smtp(cfg: dict, to_email: str, msg: MIMEMultipart):
+    """Blocking SMTP send. Never log the password."""
+    host = cfg["host"]
+    port = cfg["port"]
+    logger.info("[EMAIL] smtp_connecting | host=%s port=%s user=%s", host, port, cfg["user"])
+
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, timeout=15) as server:
+            server.login(cfg["user"], cfg["password"])
+            logger.info("[EMAIL] smtp_connected | host=%s port=%s", host, port)
+            server.sendmail(cfg["from"], [to_email], msg.as_string())
+    else:
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(cfg["user"], cfg["password"])
+            logger.info("[EMAIL] smtp_connected | host=%s port=%s", host, port)
+            server.sendmail(cfg["from"], [to_email], msg.as_string())
+
+
+async def _dispatch(cfg: dict, to_email: str, msg: MIMEMultipart, tag: str, user_id: int) -> bool:
+    """
+    Run blocking SMTP in executor. Return True on success.
+    Never raises — bot won't crash.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _send_smtp, cfg, to_email, msg)
+        logger.info("[EMAIL] email_sent | tag=%s | user_id=%s | to=%s", tag, user_id, to_email)
+        return True
+    except Exception as e:
+        logger.error("[EMAIL] email_failed | tag=%s | user_id=%s | to=%s | error=%s", tag, user_id, to_email, e)
+        return False
+
+
+# ─────────────────────────────────────────────
+# Email builders
+# ─────────────────────────────────────────────
+
+def _build_confirmation_email(to_email: str, user_id: int) -> MIMEMultipart:
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Promote Auto - Backup Email Confirmed ✅"
+    msg["From"]    = _smtp_config().get("from", "")
+    msg["To"]      = to_email
+
+    text = (
+        f"Hi!\n\n"
+        f"Backup email kau dah berjaya disimpan dalam sistem Promote Auto.\n\n"
+        f"Email   : {to_email}\n"
+        f"User ID : {user_id}\n\n"
+        f"Kalau userbot kau ada masalah session/login, kami akan hantar recovery notice ke email ni automatik.\n\n"
+        f"---\n"
+        f"Promote Auto by @berryrcr\n"
+        f"Jangan balas email ini."
+    )
+
+    html = f"""
+<html>
+<body style="font-family:Arial,sans-serif;color:#222;max-width:520px;margin:auto;padding:24px">
+  <h2 style="color:#27ae60">✅ Backup Email Confirmed!</h2>
+  <p>Hi!</p>
+  <p>Backup email kau dah berjaya disimpan dalam sistem <strong>Promote Auto</strong>.</p>
+  <table style="border-collapse:collapse;width:100%;margin:16px 0">
+    <tr>
+      <td style="padding:8px;background:#f5f5f5;font-weight:bold;width:35%">Email</td>
+      <td style="padding:8px;background:#f9f9f9;font-family:monospace">{to_email}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px;background:#f5f5f5;font-weight:bold">User ID</td>
+      <td style="padding:8px;background:#f9f9f9;font-family:monospace">{user_id}</td>
+    </tr>
+  </table>
+  <p>
+    Kalau userbot kau ada masalah <strong>session / login</strong>, kami akan hantar
+    recovery notice ke email ni <em>secara automatik</em>.
+  </p>
+  <hr style="margin:24px 0;border:none;border-top:1px solid #eee">
+  <p style="font-size:12px;color:#888">Promote Auto by @berryrcr &mdash; Jangan balas email ini.</p>
+</body>
+</html>"""
+
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+    return msg
+
+
+def _build_recovery_email(to_email: str, userbot_id: str, user_id: int, error_reason: str) -> MIMEMultipart:
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Promote Auto - Userbot Recovery ⚠️"
+    msg["From"]    = _smtp_config().get("from", "")
+    msg["To"]      = to_email
+
+    text = (
         f"Hi,\n\n"
         f"Userbot korang ada masalah login/session.\n\n"
         f"Userbot ID : {userbot_id}\n"
@@ -67,7 +163,7 @@ def _build_recovery_email(userbot_id: str, user_id: int, error_reason: str) -> M
         f"Jangan balas email ini."
     )
 
-    body_html = f"""
+    html = f"""
 <html>
 <body style="font-family:Arial,sans-serif;color:#222;max-width:520px;margin:auto;padding:24px">
   <h2 style="color:#d9534f">⚠️ Promote Auto — Userbot Recovery</h2>
@@ -92,16 +188,35 @@ def _build_recovery_email(userbot_id: str, user_id: int, error_reason: str) -> M
     <strong>🔑 Recover Token</strong> untuk sambung semula.
   </p>
   <hr style="margin:24px 0;border:none;border-top:1px solid #eee">
-  <p style="font-size:12px;color:#888">
-    Promote Auto by @berryrcr &mdash; Jangan balas email ini.
-  </p>
+  <p style="font-size:12px;color:#888">Promote Auto by @berryrcr &mdash; Jangan balas email ini.</p>
 </body>
-</html>
-"""
+</html>"""
 
-    msg.attach(MIMEText(body_text, "plain"))
-    msg.attach(MIMEText(body_html, "html"))
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
     return msg
+
+
+# ─────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────
+
+async def send_confirmation_email(to_email: str, user_id: int) -> bool:
+    """
+    Hantar confirmation email bila user save backup email.
+    Return True kalau berjaya, False kalau gagal / SMTP tidak set.
+    """
+    if not to_email or not EMAIL_REGEX.match(to_email):
+        logger.warning("[EMAIL] email_failed | tag=confirmation | reason=invalid_email | user_id=%s", user_id)
+        return False
+
+    cfg = _smtp_config()
+    if not cfg:
+        logger.warning("[EMAIL] email_failed | tag=confirmation | reason=smtp_not_configured | user_id=%s", user_id)
+        return False
+
+    msg = _build_confirmation_email(to_email, user_id)
+    return await _dispatch(cfg, to_email, msg, "confirmation", user_id)
 
 
 async def send_recovery_email(
@@ -111,14 +226,12 @@ async def send_recovery_email(
     error_reason: str,
 ) -> bool:
     """
-    Hantar recovery email kepada user.
-
-    Return True kalau berjaya, False kalau gagal / SMTP belum set.
-    Tak raise exception — bot mesti terus jalan walaupun email gagal.
+    Hantar recovery email bila session/userbot ada masalah.
+    Selamat: tiada password/token/session_string dalam email.
     """
     if not to_email or not EMAIL_REGEX.match(to_email):
         logger.warning(
-            "[EMAIL] email tidak sah atau kosong — skip | user_id=%s email=%s",
+            "[EMAIL] email_failed | tag=recovery | reason=invalid_email | user_id=%s | email=%s",
             user_id, to_email or "TIADA",
         )
         return False
@@ -126,63 +239,24 @@ async def send_recovery_email(
     cfg = _smtp_config()
     if not cfg:
         logger.warning(
-            "[EMAIL] SMTP belum diset (SMTP_HOST/SMTP_USER/SMTP_PASS kosong) — "
-            "skip recovery email | user_id=%s", user_id,
+            "[EMAIL] email_failed | tag=recovery | reason=smtp_not_configured | user_id=%s", user_id,
         )
         return False
 
-    try:
-        msg     = _build_recovery_email(userbot_id, user_id, error_reason)
-        msg["To"] = to_email
-
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _send_smtp, cfg, to_email, msg)
-
-        logger.info(
-            "[EMAIL] recovery email dihantar | user_id=%s | userbot_id=%s | to=%s | reason=%s",
-            user_id, userbot_id, to_email, error_reason,
-        )
-        return True
-
-    except Exception as e:
-        logger.error(
-            "[EMAIL] gagal hantar email | user_id=%s | userbot_id=%s | to=%s | error=%s",
-            user_id, userbot_id, to_email, e,
-        )
-        return False
-
-
-def _send_smtp(cfg: dict, to_email: str, msg: MIMEMultipart):
-    """Blocking SMTP send — dijalankan dalam executor supaya tak block event loop."""
-    host = cfg["host"]
-    port = cfg["port"]
-
-    # Cuba STARTTLS (port 587) dulu, fallback ke SSL (port 465)
-    if port == 465:
-        with smtplib.SMTP_SSL(host, port, timeout=15) as server:
-            server.login(cfg["user"], cfg["password"])
-            server.sendmail(cfg["from"], [to_email], msg.as_string())
-    else:
-        with smtplib.SMTP(host, port, timeout=15) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(cfg["user"], cfg["password"])
-            server.sendmail(cfg["from"], [to_email], msg.as_string())
+    msg = _build_recovery_email(to_email, userbot_id, user_id, error_reason)
+    return await _dispatch(cfg, to_email, msg, "recovery", user_id)
 
 
 async def notify_session_error(user_id: int, userbot_id: str, error_reason: str):
     """
     Helper: ambil backup_email dari DB dan hantar recovery email.
-    Selamat dipanggil dari mana-mana — tak crash kalau email tak set.
+    Selamat dipanggil dari mana-mana — tak crash kalau email tak set atau SMTP gagal.
     """
     try:
         import database as db
         email = await db.get_backup_email(user_id)
         if not email:
-            logger.info(
-                "[EMAIL] backup_email tiada untuk user_id=%s — skip recovery email", user_id,
-            )
+            logger.info("[EMAIL] email_skipped | tag=recovery | reason=no_backup_email | user_id=%s", user_id)
             return
         await send_recovery_email(
             to_email=email,
@@ -191,12 +265,4 @@ async def notify_session_error(user_id: int, userbot_id: str, error_reason: str)
             error_reason=error_reason,
         )
     except Exception as e:
-        logger.error("[EMAIL] notify_session_error exception uid=%s: %s", user_id, e)
-
-
-def smtp_status() -> str:
-    """Return status string — untuk admin info."""
-    if _is_smtp_configured():
-        cfg = _smtp_config()
-        return f"✅ SMTP configured ({cfg['host']}:{cfg['port']}, user={cfg['user']})"
-    return "❌ SMTP not configured (SMTP_HOST/SMTP_USER/SMTP_PASS not set)"
+        logger.error("[EMAIL] email_failed | tag=recovery | user_id=%s | exception=%s", user_id, e)

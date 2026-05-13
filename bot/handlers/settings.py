@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import database as db
 from keyboards import back_to_menu_kb
+from services.email_service import send_confirmation_email
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -148,12 +149,20 @@ async def process_email(message: Message, state: FSMContext):
     ok = await db.set_backup_email(uid, email)
     if ok:
         await message.answer(
-            f"✅ *Backup email saved!*\n\n📩 `{email}`",
+            f"✅ *Backup email saved!*\n\n📩 `{email}`\n\n"
+            "_Confirmation email akan dihantar ke inbox kau sekarang._",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")]
             ]),
         )
+        sent = await send_confirmation_email(to_email=email, user_id=uid)
+        if not sent:
+            await message.answer(
+                "⚠️ _Email confirmation tak dapat dihantar — SMTP mungkin belum diset. "
+                "Backup email korang tetap tersimpan dalam sistem._",
+                parse_mode="Markdown",
+            )
     else:
         await message.answer(
             "❌ Failed to save email. Make sure your account is connected first.",
