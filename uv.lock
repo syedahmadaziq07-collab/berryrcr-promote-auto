@@ -178,6 +178,7 @@ dependencies = [
     { name = "apscheduler" },
     { name = "cryptg" },
     { name = "python-dotenv" },
+    { name = "pytz" },
     { name = "supabase" },
     { name = "telethon" },
 ]
@@ -188,6 +189,7 @@ requires-dist = [
     { name = "apscheduler", specifier = "==3.10.4" },
     { name = "cryptg", specifier = "==0.4.0" },
     { name = "python-dotenv", specifier = "==1.0.1" },
+    { name = "pytz", specifier = ">=2026.2" },
     { name = "supabase", specifier = ">=2.0.0" },
     { name = "telethon", specifier = "==1.36.0" },
 ]

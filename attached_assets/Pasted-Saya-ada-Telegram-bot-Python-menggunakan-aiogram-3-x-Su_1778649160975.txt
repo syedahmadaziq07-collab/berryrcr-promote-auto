@@ -1,0 +1,341 @@
+Saya ada Telegram bot Python menggunakan aiogram 3.x + Supabase + Telethon.
+
+PENTING — BACA DULU SEBELUM BUAT APA-APA:
+- JANGAN buat laman web / API / papan pemuka
+- JANGAN mulakan workflow api-server / nodejs / pnpm
+- Bot dijalankan dengan: cd bot && python main.py
+- Gunakan Python polling sahaja
+- Semua teks dalam Bahasa Melayu Malaysia
+- JANGAN guna bahasa Indonesia
+
+━━━━━━━━━━━━━━━━━━━━
+TUGASAN 1 — BAIKI FUNGSI SEPARA
+━━━━━━━━━━━━━━━━━━━━
+
+FUNGSI 1: 📋 Status Akaun (status.py)
+Masalah: Hanya papar status promote & sesi sahaja.
+Perlu ditambah:
+- Semak kesihatan akaun Telegram sebenar menggunakan Telethon
+- Kesan FloodWait — papar berapa saat perlu tunggu
+- Kesan akaun banned/terhad — papar amaran jelas
+- Kesan sesi tamat / terlog keluar — minta user log masuk semula
+- Format paparan status:
+
+📋 STATUS AKAUN
+━━━━━━━━━━━━━━━━━━━━
+👤 Nama     : {nama}
+📱 Nombor   : {nombor}
+🤖 ID Userbot : {userbot_id}
+━━━━━━━━━━━━━━━━━━━━
+🟢 Akaun    : Aktif / 🔴 Terhad / ⚠️ Flood
+📊 Promote  : Sedang Berjalan / Berhenti
+📨 Mesej Dihantar : {jumlah}
+⏸️ Tempoh Antara  : {minit} minit
+━━━━━━━━━━━━━━━━━━━━
+
+FUNGSI 2: 👁️ Lihat Kumpulan (groups.py)
+Masalah: Paparan kumpulan bercampur dengan toggle pilih.
+Perlu ditambah:
+- Paparan bersih senarai kumpulan yang dipilih sahaja
+- Format paparan:
+
+👁️ SENARAI KUMPULAN AKTIF
+━━━━━━━━━━━━━━━━━━━━
+1. {nama_kumpulan_1}
+2. {nama_kumpulan_2}
+3. {nama_kumpulan_3}
+━━━━━━━━━━━━━━━━━━━━
+Jumlah: {n} kumpulan dipilih
+
+FUNGSI 3: ➕ Tambah Kumpulan (groups.py)
+Masalah: Hanya boleh pilih dari senarai kumpulan yang sudah disertai.
+Perlu ditambah:
+- Tambah kumpulan secara manual menggunakan ID atau username
+- Contoh input: -1001234567890 atau @namagrup
+- Sahkan kumpulan wujud menggunakan Telethon sebelum simpan
+
+FUNGSI 4: ✂️ Buang Kumpulan (groups.py)
+Masalah: Hanya boleh nyahpilih sahaja, tiada butang Buang khusus.
+Perlu ditambah:
+- Butang buang khusus untuk setiap kumpulan
+- Pengesahan sebelum buang:
+  "Adakah anda pasti mahu membuang {nama_kumpulan}?"
+  [✅ Ya, Buang] [❌ Batal]
+
+━━━━━━━━━━━━━━━━━━━━
+TUGASAN 2 — BUAT FUNGSI BARU: SENARAI MESEJ BERBILANG
+━━━━━━━━━━━━━━━━━━━━
+
+Sistem semasa hanya sokong satu mesej sahaja.
+Perlu dibuat sistem senarai mesej berbilang.
+
+Buat fail baru: bot/handlers/messages.py
+
+FUNGSI YANG PERLU ADA:
+
+1. 👁️ Lihat Mesej
+- Papar semua mesej dalam senarai sebarkan
+- Format:
+
+📋 SENARAI MESEJ SEBARKAN
+━━━━━━━━━━━━━━━━━━━━
+1. {preview mesej 50 aksara}...
+2. {preview mesej 50 aksara}...
+━━━━━━━━━━━━━━━━━━━━
+Jumlah: {n} mesej
+
+2. ➕ Tambah Mesej
+- FSM state: tunggu user taip atau hantar mesej
+- Sokong teks, gambar, video
+- Simpan ke Supabase table: broadcast_messages
+- Hadkan maksimum 10 mesej per userbot
+
+3. ✂️ Buang Mesej
+- Papar senarai mesej dengan butang buang
+- Pengesahan sebelum buang
+
+4. 🧹 Kosongkan Semua Mesej
+- Padam semua mesej sekaligus
+- Pengesahan:
+  "Adakah anda pasti mahu memadamkan SEMUA mesej?"
+  [✅ Ya, Padam Semua] [❌ Batal]
+
+5. 🧹 Kosongkan Semua Kumpulan
+- Padam semua kumpulan dari senarai sebarkan sekaligus
+- Pengesahan yang sama
+
+Database table baru diperlukan:
+CREATE TABLE IF NOT EXISTS broadcast_messages (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    content_type TEXT NOT NULL,
+    text_content TEXT,
+    file_id TEXT,
+    urutan INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+━━━━━━━━━━━━━━━━━━━━
+TUGASAN 3 — BUAT FUNGSI BARU: BALAS AUTOMATIK
+━━━━━━━━━━━━━━━━━━━━
+
+Buat fail baru: bot/handlers/autoreply.py
+
+Sistem balas automatik: apabila ada mesej masuk ke saluran/kumpulan 
+yang didaftarkan, userbot akan balas secara automatik 
+menggunakan teks yang telah ditetapkan.
+
+FUNGSI YANG PERLU ADA:
+
+1. 👁️ Lihat Saluran
+- Papar semua saluran yang didaftarkan untuk balas automatik
+
+2. ➕ Tambah Saluran
+- Tambah saluran menggunakan ID atau username
+- Contoh: -1001234567890 atau @namachannel
+
+3. ✂️ Buang Saluran
+- Buang saluran dari senarai balas automatik
+
+4. 🧹 Kosongkan Saluran
+- Padam semua saluran sekaligus
+
+5. 👁️ Lihat Teks Balas
+- Papar semua teks yang akan digunakan untuk balas automatik
+
+6. ➕ Tambah Teks Balas
+- FSM state: tunggu user taip teks balas
+- Boleh tambah berbilang teks (bot akan pilih rawak)
+
+7. ✂️ Buang Teks Balas
+- Buang teks tertentu dari senarai
+
+8. 🧹 Kosongkan Teks Balas
+- Padam semua teks sekaligus
+
+Database tables baru:
+CREATE TABLE IF NOT EXISTS autoreply_channels (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    channel_id TEXT NOT NULL,
+    channel_name TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS autoreply_texts (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    teks TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+━━━━━━━━━━━━━━━━━━━━
+TUGASAN 4 — BUAT FUNGSI BARU: JADUAL AKTIF
+━━━━━━━━━━━━━━━━━━━━
+
+Buat dalam fail: bot/handlers/schedule.py
+
+Fungsi: Userbot hanya aktif pada waktu yang ditetapkan.
+Contoh: Aktif 9:00 pagi - 11:00 malam sahaja.
+
+Flow:
+1. User tetapkan waktu mula (contoh: 09:00)
+2. User tetapkan waktu tamat (contoh: 23:00)
+3. Bot simpan jadual
+4. Bot semak waktu semasa sebelum setiap penghantaran
+5. Jika diluar waktu, henti promote secara automatik
+
+Format paparan:
+🕐 JADUAL AKTIF
+━━━━━━━━━━━━━━━━━━━━
+⏰ Waktu Mula  : {jam_mula}
+⏰ Waktu Tamat : {jam_tamat}
+📍 Zon Waktu   : Asia/Kuala_Lumpur
+━━━━━━━━━━━━━━━━━━━━
+Status: ✅ Dalam waktu aktif / ⏸️ Diluar waktu aktif
+
+Database:
+Tambah kolum ke table sessions atau buat table baru:
+CREATE TABLE IF NOT EXISTS schedules (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    userbot_id TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    waktu_mula TIME NOT NULL,
+    waktu_tamat TIME NOT NULL,
+    aktif BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+━━━━━━━━━━━━━━━━━━━━
+TUGASAN 5 — BUAT FUNGSI BARU: URUS PEMBERITAHUAN
+━━━━━━━━━━━━━━━━━━━━
+
+Tambah dalam fail: bot/handlers/settings.py
+
+Fungsi: User boleh hidupkan atau matikan pemberitahuan
+apabila mesej sebarkan berjaya dihantar.
+
+Format paparan:
+🔕 URUS PEMBERITAHUAN
+━━━━━━━━━━━━━━━━━━━━
+Status semasa: 🔔 Aktif / 🔕 Tidak Aktif
+
+[🔔 Hidupkan] [🔕 Matikan]
+
+Database:
+Tambah kolum notif_aktif BOOLEAN DEFAULT TRUE
+ke dalam table wallets atau sessions.
+
+━━━━━━━━━━━━━━━━━━━━
+TUGASAN 6 — BUAT FUNGSI BARU: KOD RUJUKAN
+━━━━━━━━━━━━━━━━━━━━
+
+Buat dalam fail: bot/handlers/referral.py
+
+Flow:
+1. Setiap user ada kod rujukan unik
+   Format: REF-{user_id} atau REF-XXXXX (rawak)
+2. User kongsi link:
+   https://t.me/{botusername}?start=REF-XXXXX
+3. Apabila user baru klik link dan daftar:
+   - User baru dapat 50 syiling percuma
+   - User pemilik rujukan dapat 100 syiling
+4. Paparan:
+
+🎁 KOD RUJUKAN ANDA
+━━━━━━━━━━━━━━━━━━━━
+🔗 Kod    : REF-XXXXX
+📎 Link   : https://t.me/{bot}?start=REF-XXXXX
+━━━━━━━━━━━━━━━━━━━━
+👥 Jumlah Rujukan : {n} orang
+🪙 Syiling Diperoleh : {jumlah} syiling
+
+Database:
+CREATE TABLE IF NOT EXISTS referrals (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    referrer_id BIGINT NOT NULL,
+    referred_id BIGINT NOT NULL,
+    ref_code TEXT NOT NULL,
+    coins_given INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+━━━━━━━━━━━━━━━━━━━━
+TUGASAN 7 — BUAT FUNGSI BARU: MOD LANJUTAN
+━━━━━━━━━━━━━━━━━━━━
+
+Buat dalam fail: bot/handlers/expert.py
+
+Fungsi: Setiap kumpulan boleh ada senarai mesej berbeza.
+Sistem biasa: Semua kumpulan terima mesej yang sama.
+Mod Lanjutan: Kumpulan A terima Mesej 1, Kumpulan B terima Mesej 2.
+
+Flow:
+1. User aktifkan Mod Lanjutan
+2. User pilih kumpulan
+3. User tetapkan mesej khusus untuk kumpulan tersebut
+4. Semasa promote, bot hantar mesej yang ditetapkan
+   untuk setiap kumpulan masing-masing
+
+━━━━━━━━━━━━━━━━━━━━
+TUGASAN 8 — BUAT FUNGSI BARU: EMEL SANDARAN
+━━━━━━━━━━━━━━━━━━━━
+
+Tambah dalam fail: bot/handlers/settings.py
+
+Fungsi: User simpan emel untuk terima token sandaran
+sekiranya akaun Telegram hilang akses.
+
+Flow:
+1. User masukkan alamat emel
+2. Bot sahkan format emel
+3. Bot simpan emel ke database
+4. Apabila user minta sandaran, bot hantar token ke emel
+
+Format:
+📧 EMEL SANDARAN
+━━━━━━━━━━━━━━━━━━━━
+Emel semasa: {emel} / Belum ditetapkan
+
+[✏️ Tetapkan Emel]
+
+Database:
+Tambah kolum emel TEXT ke table wallets atau sessions.
+
+━━━━━━━━━━━━━━━━━━━━
+STRUKTUR FAIL YANG PERLU DIKEMASKINI
+━━━━━━━━━━━━━━━━━━━━
+
+bot/
+├── handlers/
+│   ├── status.py        ← KEMASKINI (Tugasan 1)
+│   ├── groups.py        ← KEMASKINI (Tugasan 1)
+│   ├── messages.py      ← BUAT BARU (Tugasan 2)
+│   ├── autoreply.py     ← BUAT BARU (Tugasan 3)
+│   ├── schedule.py      ← BUAT BARU (Tugasan 4)
+│   ├── settings.py      ← KEMASKINI (Tugasan 5 & 8)
+│   ├── referral.py      ← BUAT BARU (Tugasan 6)
+│   └── expert.py        ← BUAT BARU (Tugasan 7)
+├── database.py          ← KEMASKINI (tambah semua fungsi DB baru)
+└── main.py              ← KEMASKINI (daftarkan semua router baru)
+
+━━━━━━━━━━━━━━━━━━━━
+PERATURAN WAJIB
+━━━━━━━━━━━━━━━━━━━━
+
+1. Semua callback_query MESTI await callback.answer() 
+   sebagai baris pertama
+2. Semua operasi database MESTI dalam try/except
+3. Jika Supabase gagal, bot JANGAN crash
+4. Semua flow MESTI ada butang ❌ Batal atau 🔙 Kembali
+5. Jangan duplicate keyboard atau mesej
+6. Semua teks Bahasa Melayu Malaysia
+7. JANGAN guna bahasa Indonesia
+8. Emoji minimal dan kemas
+9. Buat satu tugasan pada satu masa
+10. Tunjukkan fail yang telah diubah selepas setiap tugasan
+11. Selepas semua siap, jalankan: cd bot && python main.py
+    dan tunjukkan log untuk sahkan tiada error

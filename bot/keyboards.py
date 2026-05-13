@@ -156,12 +156,27 @@ def topup_request_admin_kb(
 def tetapan_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="👥 Pilih Kumpulan",      callback_data="select_groups"),
-            InlineKeyboardButton(text="📝 Tetapkan Mesej",      callback_data="set_message"),
+            InlineKeyboardButton(text="👥 Kumpulan",            callback_data="groups_manage"),
+            InlineKeyboardButton(text="📋 Senarai Mesej",       callback_data="bcast_menu"),
         ],
         [
-            InlineKeyboardButton(text="⏱️ Tetapkan Jarak Masa", callback_data="set_delay"),
-            InlineKeyboardButton(text="📊 Status",              callback_data="status"),
+            InlineKeyboardButton(text="📝 Tetapkan Mesej",      callback_data="set_message"),
+            InlineKeyboardButton(text="⏱️ Jarak Masa",          callback_data="set_delay"),
+        ],
+        [
+            InlineKeyboardButton(text="📋 Status Akaun",        callback_data="status"),
+            InlineKeyboardButton(text="🤖 Balas Auto",          callback_data="autoreply_menu"),
+        ],
+        [
+            InlineKeyboardButton(text="🕐 Jadual Aktif",        callback_data="schedule_menu"),
+            InlineKeyboardButton(text="🔬 Mod Lanjutan",        callback_data="expert_menu"),
+        ],
+        [
+            InlineKeyboardButton(text="🔕 Pemberitahuan",       callback_data="notif_menu"),
+            InlineKeyboardButton(text="📧 Emel Sandaran",       callback_data="email_menu"),
+        ],
+        [
+            InlineKeyboardButton(text="🎁 Kod Rujukan",         callback_data="referral_menu"),
         ],
         [
             InlineKeyboardButton(text="🚀 Mula Promote",        callback_data="start_promote"),

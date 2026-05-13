@@ -10,10 +10,8 @@ from aiogram.fsm.state import State, StatesGroup
 import database as db
 from config import MIN_DELAY_MINUTES
 from keyboards import (
-    tetapan_kb, back_to_menu_kb, cancel_kb,
-    groups_selection_kb, main_menu_kb,
+    tetapan_kb, back_to_menu_kb, cancel_kb, main_menu_kb,
 )
-from services.telethon_service import fetch_user_groups
 from services import scheduler_service
 
 router = Router()
@@ -23,14 +21,6 @@ logger = logging.getLogger(__name__)
 class SettingsFSM(StatesGroup):
     waiting_message    = State()
     waiting_delay      = State()
-
-
-class GroupsFSM(StatesGroup):
-    selecting = State()
-
-
-_temp_groups: dict = {}
-_temp_selected: dict = {}
 
 
 # ─────────────────────────────────────────────
@@ -64,116 +54,6 @@ async def msg_tetapan(message: Message, state: FSMContext):
         "Pilih tetapan di bawah:"
     )
     await message.answer(text, parse_mode="Markdown", reply_markup=tetapan_kb())
-
-
-# ─────────────────────────────────────────────
-# 👥 PILIH KUMPULAN
-# ─────────────────────────────────────────────
-
-@router.callback_query(F.data == "select_groups")
-async def cb_select_groups(callback: CallbackQuery, state: FSMContext):
-    uid = callback.from_user.id
-
-    # Validasi pantas — jawab dengan show_alert jika gagal
-    session = await db.get_session(uid)
-    if not session:
-        await callback.answer(
-            "⚠️ Sila sambung akaun dahulu melalui 📚 Buat Userbot!",
-            show_alert=True,
-        )
-        return
-
-    sub = await db.get_active_subscription(uid)
-    if not sub:
-        await callback.answer(
-            "⚠️ Sila aktifkan pelan PLUS/PRO dahulu melalui 📚 Buat Userbot!",
-            show_alert=True,
-        )
-        return
-
-    # Jawab callback SEBELUM operasi berat (fetch dari Telegram)
-    await callback.answer()
-    msg = await callback.message.edit_text("⏳ Memuat senarai kumpulan anda...")
-    try:
-        groups = await fetch_user_groups(session["session_string"])
-        if not groups:
-            await msg.edit_text(
-                "ℹ️ *Tiada kumpulan ditemui.*\n\n"
-                "Pastikan akaun anda sudah menyertai sekurang-kurangnya satu kumpulan Telegram.",
-                parse_mode="Markdown",
-                reply_markup=back_to_menu_kb(),
-            )
-            return
-
-        _temp_groups[uid] = groups
-        saved        = await db.get_selected_groups(uid)
-        selected_ids = {int(row["group_id"]) for row in saved}
-        _temp_selected[uid] = selected_ids
-
-        await state.set_state(GroupsFSM.selecting)
-        await msg.edit_text(
-            f"👥 *Pilih Kumpulan Promote*\n\n"
-            f"Ditemui *{len(groups)}* kumpulan.\n"
-            f"Tekan untuk pilih/nyahpilih:\n"
-            f"✅ = dipilih | ◻️ = tidak dipilih",
-            parse_mode="Markdown",
-            reply_markup=groups_selection_kb(groups, selected_ids),
-        )
-    except Exception as e:
-        logger.error("fetch_user_groups error uid=%s: %s", uid, e)
-        await msg.edit_text(
-            f"❌ *Gagal memuat kumpulan.*\n\nRalat: `{str(e)}`\n\nSila cuba lagi.",
-            parse_mode="Markdown",
-            reply_markup=back_to_menu_kb(),
-        )
-
-
-@router.callback_query(F.data.startswith("toggle_group_"))
-async def cb_toggle_group(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()  # Jawab terus — tiada DB berat
-    uid      = callback.from_user.id
-    group_id = int(callback.data.replace("toggle_group_", ""))
-    groups   = _temp_groups.get(uid, [])
-    selected = _temp_selected.get(uid, set())
-
-    if group_id in selected:
-        selected.discard(group_id)
-    else:
-        selected.add(group_id)
-    _temp_selected[uid] = selected
-
-    await callback.message.edit_reply_markup(
-        reply_markup=groups_selection_kb(groups, selected)
-    )
-
-
-@router.callback_query(F.data == "save_groups")
-async def cb_save_groups(callback: CallbackQuery, state: FSMContext):
-    uid      = callback.from_user.id
-    groups   = _temp_groups.get(uid, [])
-    selected = _temp_selected.get(uid, set())
-
-    if not selected:
-        await callback.answer(
-            "⚠️ Sila pilih sekurang-kurangnya satu kumpulan!",
-            show_alert=True,
-        )
-        return
-
-    # Jawab callback SEBELUM simpan ke DB
-    await callback.answer("✅ Menyimpan kumpulan...")
-    selected_groups = [g for g in groups if g["id"] in selected]
-    await db.save_selected_groups(uid, selected_groups)
-    _temp_groups.pop(uid, None)
-    _temp_selected.pop(uid, None)
-    await state.clear()
-
-    await callback.message.edit_text(
-        f"✅ *{len(selected_groups)} kumpulan berjaya disimpan!*\n\n"
-        "Bot akan menghantar promosi ke kumpulan yang dipilih sahaja.",
-        parse_mode="Markdown",
-        reply_markup=back_to_menu_kb(),
-    )
 
 
 # ─────────────────────────────────────────────
@@ -391,63 +271,3 @@ async def cb_stop_promote(callback: CallbackQuery):
     )
 
 
-# ─────────────────────────────────────────────
-# 📊 STATUS
-# ─────────────────────────────────────────────
-
-@router.callback_query(F.data == "status")
-async def cb_status(callback: CallbackQuery):
-    # Jawab PERTAMA — status ada 5 DB calls
-    await callback.answer()
-    uid = callback.from_user.id
-
-    sub      = await db.get_active_subscription(uid)
-    wallet   = await db.get_wallet(uid)
-    session  = await db.get_session(uid)
-    groups   = await db.get_selected_groups(uid)
-    settings = await db.get_promo_settings(uid)
-
-    plan_name = sub["plan"] if sub else "Tiada"
-
-    if session:
-        tg_user = session.get("tg_username", "")
-        phone   = session.get("phone_number", "")
-        ub_id   = session.get("userbot_id", "")
-        session_info = f"@{tg_user}" if tg_user else (f"`{phone}`" if phone else "Tidak disambungkan")
-        ub_display   = f"`{ub_id}`" if ub_id else "Tiada"
-    else:
-        session_info = "Tidak disambungkan"
-        ub_display   = "Tiada"
-
-    if settings:
-        msg_text    = settings.get("message_text") or ""
-        msg_preview = (msg_text[:50] + "...") if len(msg_text) > 50 else (msg_text or "Tiada")
-        delay       = settings.get("delay_minutes", 60)
-        hours       = delay // 60
-        mins        = delay % 60
-        delay_str   = f"{hours}j {mins}m" if hours > 0 else f"{mins}m"
-        is_running  = settings.get("is_running", False)
-    else:
-        msg_preview = "Tiada"
-        delay_str   = "Tiada"
-        is_running  = False
-
-    status_icon = "🟢 Berjalan" if is_running else "🔴 Berhenti"
-
-    text = (
-        "📊 *Status Promote*\n"
-        "━━━━━━━━━━━━━━━\n"
-        f"🔑 Status: *{status_icon}*\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        f"🤖 ID Userbot: {ub_display}\n"
-        f"📋 Pelan: *{plan_name}*\n"
-        f"💰 Baki: *{wallet:,} Syiling*\n"
-        f"📱 Akaun: {session_info}\n"
-        f"👥 Kumpulan: *{len(groups)} dipilih*\n"
-        f"📝 Mesej: `{msg_preview}`\n"
-        f"⏱️ Jarak Masa: *{delay_str}*\n"
-    )
-
-    await callback.message.edit_text(
-        text, parse_mode="Markdown", reply_markup=back_to_menu_kb()
-    )

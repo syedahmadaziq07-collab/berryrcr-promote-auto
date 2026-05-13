@@ -66,37 +66,63 @@ async def _run_promo(user_id: int):
             stop_promo_job(user_id)
             return
 
-        plan = COIN_PLANS.get(sub["plan"], {})
+        # ── Semak jadual aktif ──
+        userbot = await db.get_userbot(user_id)
+        ub_id   = (session.get("userbot_id") or (userbot["userbot_id"] if userbot else None))
+        if ub_id:
+            from handlers.schedule import is_schedule_active
+            sched = await db.get_schedule(ub_id)
+            if not is_schedule_active(sched):
+                logger.info(f"User {user_id} diluar waktu jadual — promote dilangkau")
+                return
+
+        plan         = COIN_PLANS.get(sub["plan"], {})
         message_text = settings.get("message_text", "")
-        if not message_text:
+
+        # ── Semak mod lanjutan ──
+        expert_on  = await db.get_expert_mode(user_id)
+        group_msgs = await db.get_all_group_messages(user_id) if expert_on else {}
+
+        if not message_text and not expert_on:
             return
 
-        add_footer = plan.get("footer_required", True)
-        full_message = message_text + (MANDATORY_FOOTER if add_footer else "")
+        add_footer   = plan.get("footer_required", True)
+        full_message = message_text + (MANDATORY_FOOTER if add_footer else "") if message_text else ""
 
         groups = await db.get_selected_groups(user_id)
         if not groups:
             return
 
         success_count = 0
-        fail_count = 0
+        fail_count    = 0
 
         for group in groups:
+            gid = group["group_id"]
+            # Pilih mesej: mod lanjutan > mesej umum
+            if expert_on and gid in group_msgs:
+                grp_msg = group_msgs[gid] + (MANDATORY_FOOTER if add_footer else "")
+            elif full_message:
+                grp_msg = full_message
+            else:
+                continue
+
             try:
                 await send_message_to_group(
                     session["session_string"],
-                    int(group["group_id"]),
-                    full_message,
+                    int(gid),
+                    grp_msg,
                 )
                 success_count += 1
                 await asyncio.sleep(3)
             except Exception as e:
                 fail_count += 1
-                logger.error(f"Gagal hantar ke group {group['group_id']}: {e}")
+                logger.error(f"Gagal hantar ke group {gid}: {e}")
 
         logger.info(f"Promo selesai user {user_id}: {success_count} berjaya, {fail_count} gagal")
 
-        if _bot_instance and success_count > 0:
+        # ── Notifikasi (semak pilihan user) ──
+        notif_aktif = await db.get_notif_status(user_id)
+        if _bot_instance and success_count > 0 and notif_aktif:
             try:
                 delay = settings.get("delay_minutes", MIN_DELAY_MINUTES)
                 await _bot_instance.send_message(

@@ -69,8 +69,36 @@ async def cmd_start(message: Message, bot: Bot):
     try:
         is_new = await db.is_new_user(user.id)
         await db.ensure_user(user.id, user.username or "", user.full_name or "")
+
         if is_new:
             await _notify_admin_new_user(bot, user.id, user.username or "", user.full_name or "")
+
+            # ── Semak kod rujukan ──
+            args = message.text.split(maxsplit=1)
+            ref_param = args[1].strip() if len(args) > 1 else ""
+            if ref_param.startswith("REF-"):
+                try:
+                    referrer_id_str = ref_param.replace("REF-", "").split("-")[0]
+                    referrer_id = int(referrer_id_str)
+                    if referrer_id != user.id:
+                        created = await db.create_referral(referrer_id, user.id, ref_param)
+                        if created:
+                            await db.finalize_referral_coins(referrer_id, user.id)
+                            await message.answer(
+                                "🎁 *Tahniah!* Anda menerima *50 syiling* bonus kerana menggunakan kod rujukan!",
+                                parse_mode="Markdown",
+                            )
+                            try:
+                                await bot.send_message(
+                                    referrer_id,
+                                    f"🎉 Rakan baru telah menyertai menggunakan kod rujukan anda!\n"
+                                    f"Anda menerima *100 syiling* bonus!",
+                                    parse_mode="Markdown",
+                                )
+                            except Exception:
+                                pass
+                except Exception as e:
+                    logger.warning("Referral processing error: %s", e)
     except Exception as e:
         logger.error(f"DB error dalam cmd_start untuk user {user.id}: {e}")
 

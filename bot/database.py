@@ -811,3 +811,476 @@ async def get_pending_topup_requests(limit: int = 20) -> list:
         .execute()
     )
     return res.data or []
+
+
+# ─────────────────────────────────────────────
+# GROUPS — operasi tambahan
+# ─────────────────────────────────────────────
+
+async def remove_single_group(user_id: int, group_id: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("selected_groups").delete().eq("user_id", user_id).eq("group_id", group_id).execute()
+        return True
+    except Exception as e:
+        logger.warning("remove_single_group error uid=%s gid=%s: %s", user_id, group_id, e)
+        return False
+
+
+async def clear_all_groups(user_id: int) -> int:
+    try:
+        client = await get_client()
+        existing = await client.table("selected_groups").select("id").eq("user_id", user_id).execute()
+        count = len(existing.data or [])
+        await client.table("selected_groups").delete().eq("user_id", user_id).execute()
+        return count
+    except Exception as e:
+        logger.warning("clear_all_groups error uid=%s: %s", user_id, e)
+        return 0
+
+
+async def add_single_group(user_id: int, group_id: str, group_title: str, group_username: str = None) -> bool:
+    try:
+        client = await get_client()
+        existing = await client.table("selected_groups").select("id").eq("user_id", user_id).eq("group_id", group_id).execute()
+        if existing.data:
+            return False
+        await client.table("selected_groups").insert({
+            "user_id": user_id,
+            "group_id": group_id,
+            "group_title": group_title,
+            "group_username": group_username,
+        }).execute()
+        return True
+    except Exception as e:
+        logger.warning("add_single_group error uid=%s gid=%s: %s", user_id, group_id, e)
+        return False
+
+
+# ─────────────────────────────────────────────
+# BROADCAST MESSAGES (senarai mesej berbilang)
+# ─────────────────────────────────────────────
+
+async def get_broadcast_messages(userbot_id: str) -> list:
+    try:
+        client = await get_client()
+        res = (
+            await client.table("broadcast_messages")
+            .select("*")
+            .eq("userbot_id", userbot_id)
+            .order("urutan", desc=False)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        logger.warning("get_broadcast_messages error ub=%s: %s", userbot_id, e)
+        return []
+
+
+async def count_broadcast_messages(userbot_id: str) -> int:
+    try:
+        client = await get_client()
+        res = await client.table("broadcast_messages").select("id", count="exact").eq("userbot_id", userbot_id).execute()
+        return res.count or 0
+    except Exception as e:
+        logger.warning("count_broadcast_messages error: %s", e)
+        return 0
+
+
+async def add_broadcast_message(
+    userbot_id: str, user_id: int,
+    content_type: str, text_content: str = None, file_id: str = None
+) -> bool:
+    try:
+        client = await get_client()
+        count = await count_broadcast_messages(userbot_id)
+        if count >= 10:
+            return False
+        await client.table("broadcast_messages").insert({
+            "userbot_id": userbot_id,
+            "user_id": user_id,
+            "content_type": content_type,
+            "text_content": text_content,
+            "file_id": file_id,
+            "urutan": count,
+        }).execute()
+        return True
+    except Exception as e:
+        logger.warning("add_broadcast_message error ub=%s: %s", userbot_id, e)
+        return False
+
+
+async def delete_broadcast_message(msg_id: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("broadcast_messages").delete().eq("id", msg_id).execute()
+        return True
+    except Exception as e:
+        logger.warning("delete_broadcast_message error id=%s: %s", msg_id, e)
+        return False
+
+
+async def clear_broadcast_messages(userbot_id: str) -> int:
+    try:
+        client = await get_client()
+        existing = await client.table("broadcast_messages").select("id").eq("userbot_id", userbot_id).execute()
+        count = len(existing.data or [])
+        await client.table("broadcast_messages").delete().eq("userbot_id", userbot_id).execute()
+        return count
+    except Exception as e:
+        logger.warning("clear_broadcast_messages error ub=%s: %s", userbot_id, e)
+        return 0
+
+
+# ─────────────────────────────────────────────
+# AUTOREPLY CHANNELS
+# ─────────────────────────────────────────────
+
+async def get_autoreply_channels(userbot_id: str) -> list:
+    try:
+        client = await get_client()
+        res = await client.table("autoreply_channels").select("*").eq("userbot_id", userbot_id).execute()
+        return res.data or []
+    except Exception as e:
+        logger.warning("get_autoreply_channels error: %s", e)
+        return []
+
+
+async def add_autoreply_channel(userbot_id: str, user_id: int, channel_id: str, channel_name: str = "") -> bool:
+    try:
+        client = await get_client()
+        existing = await client.table("autoreply_channels").select("id").eq("userbot_id", userbot_id).eq("channel_id", channel_id).execute()
+        if existing.data:
+            return False
+        await client.table("autoreply_channels").insert({
+            "userbot_id": userbot_id,
+            "user_id": user_id,
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+        }).execute()
+        return True
+    except Exception as e:
+        logger.warning("add_autoreply_channel error: %s", e)
+        return False
+
+
+async def delete_autoreply_channel(channel_uuid: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("autoreply_channels").delete().eq("id", channel_uuid).execute()
+        return True
+    except Exception as e:
+        logger.warning("delete_autoreply_channel error: %s", e)
+        return False
+
+
+async def clear_autoreply_channels(userbot_id: str) -> int:
+    try:
+        client = await get_client()
+        existing = await client.table("autoreply_channels").select("id").eq("userbot_id", userbot_id).execute()
+        count = len(existing.data or [])
+        await client.table("autoreply_channels").delete().eq("userbot_id", userbot_id).execute()
+        return count
+    except Exception as e:
+        logger.warning("clear_autoreply_channels error: %s", e)
+        return 0
+
+
+# ─────────────────────────────────────────────
+# AUTOREPLY TEXTS
+# ─────────────────────────────────────────────
+
+async def get_autoreply_texts(userbot_id: str) -> list:
+    try:
+        client = await get_client()
+        res = await client.table("autoreply_texts").select("*").eq("userbot_id", userbot_id).execute()
+        return res.data or []
+    except Exception as e:
+        logger.warning("get_autoreply_texts error: %s", e)
+        return []
+
+
+async def add_autoreply_text(userbot_id: str, user_id: int, teks: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("autoreply_texts").insert({
+            "userbot_id": userbot_id,
+            "user_id": user_id,
+            "teks": teks,
+        }).execute()
+        return True
+    except Exception as e:
+        logger.warning("add_autoreply_text error: %s", e)
+        return False
+
+
+async def delete_autoreply_text(text_uuid: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("autoreply_texts").delete().eq("id", text_uuid).execute()
+        return True
+    except Exception as e:
+        logger.warning("delete_autoreply_text error: %s", e)
+        return False
+
+
+async def clear_autoreply_texts(userbot_id: str) -> int:
+    try:
+        client = await get_client()
+        existing = await client.table("autoreply_texts").select("id").eq("userbot_id", userbot_id).execute()
+        count = len(existing.data or [])
+        await client.table("autoreply_texts").delete().eq("userbot_id", userbot_id).execute()
+        return count
+    except Exception as e:
+        logger.warning("clear_autoreply_texts error: %s", e)
+        return 0
+
+
+# ─────────────────────────────────────────────
+# SCHEDULES (jadual aktif)
+# ─────────────────────────────────────────────
+
+async def get_schedule(userbot_id: str):
+    try:
+        client = await get_client()
+        res = await client.table("schedules").select("*").eq("userbot_id", userbot_id).limit(1).execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        logger.warning("get_schedule error: %s", e)
+        return None
+
+
+async def set_schedule(userbot_id: str, user_id: int, waktu_mula: str, waktu_tamat: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("schedules").upsert({
+            "userbot_id": userbot_id,
+            "user_id": user_id,
+            "waktu_mula": waktu_mula,
+            "waktu_tamat": waktu_tamat,
+            "aktif": True,
+        }, on_conflict="userbot_id").execute()
+        return True
+    except Exception as e:
+        logger.warning("set_schedule error: %s", e)
+        return False
+
+
+async def toggle_schedule(userbot_id: str, aktif: bool) -> bool:
+    try:
+        client = await get_client()
+        await client.table("schedules").update({"aktif": aktif}).eq("userbot_id", userbot_id).execute()
+        return True
+    except Exception as e:
+        logger.warning("toggle_schedule error: %s", e)
+        return False
+
+
+async def delete_schedule(userbot_id: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("schedules").delete().eq("userbot_id", userbot_id).execute()
+        return True
+    except Exception as e:
+        logger.warning("delete_schedule error: %s", e)
+        return False
+
+
+# ─────────────────────────────────────────────
+# NOTIFICATIONS (pemberitahuan)
+# ─────────────────────────────────────────────
+
+async def get_notif_status(user_id: int) -> bool:
+    try:
+        client = await get_client()
+        res = await client.table("promo_settings").select("notif_aktif").eq("user_id", user_id).execute()
+        if not res.data:
+            return True
+        val = res.data[0].get("notif_aktif")
+        return val if val is not None else True
+    except Exception as e:
+        logger.warning("get_notif_status error uid=%s: %s", user_id, e)
+        return True
+
+
+async def set_notif_status(user_id: int, aktif: bool) -> bool:
+    try:
+        client = await get_client()
+        await client.table("promo_settings").upsert(
+            {"user_id": user_id, "notif_aktif": aktif},
+            on_conflict="user_id",
+        ).execute()
+        return True
+    except Exception as e:
+        logger.warning("set_notif_status error uid=%s: %s", user_id, e)
+        return False
+
+
+# ─────────────────────────────────────────────
+# EMAIL SANDARAN
+# ─────────────────────────────────────────────
+
+async def get_backup_email(user_id: int):
+    try:
+        client = await get_client()
+        res = await client.table("sessions").select("backup_email").eq("user_id", user_id).execute()
+        if not res.data:
+            return None
+        return res.data[0].get("backup_email")
+    except Exception as e:
+        logger.warning("get_backup_email error uid=%s: %s", user_id, e)
+        return None
+
+
+async def set_backup_email(user_id: int, email: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("sessions").update({"backup_email": email}).eq("user_id", user_id).execute()
+        return True
+    except Exception as e:
+        logger.warning("set_backup_email error uid=%s: %s", user_id, e)
+        return False
+
+
+# ─────────────────────────────────────────────
+# REFERRALS
+# ─────────────────────────────────────────────
+
+def _make_ref_code(user_id: int) -> str:
+    return f"REF-{user_id}"
+
+
+async def get_referral_code(user_id: int) -> str:
+    return _make_ref_code(user_id)
+
+
+async def has_been_referred(referred_id: int) -> bool:
+    try:
+        client = await get_client()
+        res = await client.table("referrals").select("id").eq("referred_id", referred_id).execute()
+        return bool(res.data)
+    except Exception as e:
+        logger.warning("has_been_referred error: %s", e)
+        return False
+
+
+async def create_referral(referrer_id: int, referred_id: int, ref_code: str) -> bool:
+    try:
+        client = await get_client()
+        already = await has_been_referred(referred_id)
+        if already:
+            return False
+        await client.table("referrals").insert({
+            "referrer_id": referrer_id,
+            "referred_id": referred_id,
+            "ref_code": ref_code,
+            "coins_given": 0,
+        }).execute()
+        return True
+    except Exception as e:
+        logger.warning("create_referral error: %s", e)
+        return False
+
+
+async def get_referral_stats(user_id: int) -> dict:
+    try:
+        client = await get_client()
+        res = await client.table("referrals").select("*").eq("referrer_id", user_id).execute()
+        rows = res.data or []
+        total_coins = sum(r.get("coins_given", 0) for r in rows)
+        return {"count": len(rows), "total_coins": total_coins}
+    except Exception as e:
+        logger.warning("get_referral_stats error: %s", e)
+        return {"count": 0, "total_coins": 0}
+
+
+async def finalize_referral_coins(referrer_id: int, referred_id: int) -> bool:
+    """Kredit syiling kepada kedua-dua pihak. Dipanggil selepas user baru /start."""
+    try:
+        client = await get_client()
+        REFERRER_COINS = 100
+        REFERRED_COINS = 50
+        await add_coins(referrer_id, REFERRER_COINS, f"Bonus rujukan — user baru {referred_id}")
+        await add_coins(referred_id, REFERRED_COINS, "Bonus selamat datang — kod rujukan")
+        await client.table("referrals").update(
+            {"coins_given": REFERRER_COINS + REFERRED_COINS}
+        ).eq("referrer_id", referrer_id).eq("referred_id", referred_id).execute()
+        logger.info("finalize_referral_coins referrer=%s referred=%s OK", referrer_id, referred_id)
+        return True
+    except Exception as e:
+        logger.warning("finalize_referral_coins error: %s", e)
+        return False
+
+
+# ─────────────────────────────────────────────
+# EXPERT MODE (mesej khusus per kumpulan)
+# ─────────────────────────────────────────────
+
+async def get_expert_mode(user_id: int) -> bool:
+    try:
+        client = await get_client()
+        res = await client.table("promo_settings").select("expert_mode").eq("user_id", user_id).execute()
+        if not res.data:
+            return False
+        val = res.data[0].get("expert_mode")
+        return bool(val) if val is not None else False
+    except Exception as e:
+        logger.warning("get_expert_mode error: %s", e)
+        return False
+
+
+async def set_expert_mode(user_id: int, aktif: bool) -> bool:
+    try:
+        client = await get_client()
+        await client.table("promo_settings").upsert(
+            {"user_id": user_id, "expert_mode": aktif},
+            on_conflict="user_id",
+        ).execute()
+        return True
+    except Exception as e:
+        logger.warning("set_expert_mode error: %s", e)
+        return False
+
+
+async def get_group_message(user_id: int, group_id: str):
+    try:
+        client = await get_client()
+        res = await client.table("group_messages").select("message_text").eq("user_id", user_id).eq("group_id", group_id).execute()
+        return res.data[0]["message_text"] if res.data else None
+    except Exception as e:
+        logger.warning("get_group_message error: %s", e)
+        return None
+
+
+async def set_group_message(user_id: int, group_id: str, message_text: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("group_messages").upsert({
+            "user_id": user_id,
+            "group_id": group_id,
+            "message_text": message_text,
+        }, on_conflict="user_id,group_id").execute()
+        return True
+    except Exception as e:
+        logger.warning("set_group_message error: %s", e)
+        return False
+
+
+async def get_all_group_messages(user_id: int) -> dict:
+    try:
+        client = await get_client()
+        res = await client.table("group_messages").select("group_id, message_text").eq("user_id", user_id).execute()
+        return {row["group_id"]: row["message_text"] for row in (res.data or [])}
+    except Exception as e:
+        logger.warning("get_all_group_messages error: %s", e)
+        return {}
+
+
+async def delete_group_message(user_id: int, group_id: str) -> bool:
+    try:
+        client = await get_client()
+        await client.table("group_messages").delete().eq("user_id", user_id).eq("group_id", group_id).execute()
+        return True
+    except Exception as e:
+        logger.warning("delete_group_message error: %s", e)
+        return False

@@ -1,8 +1,15 @@
 import asyncio
+import logging
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.errors import SessionPasswordNeededError
+from telethon.errors import (
+    SessionPasswordNeededError, FloodWaitError,
+    UserDeactivatedBanError, AuthKeyUnregisteredError,
+    PhoneNumberBannedError, UserRestrictedError,
+)
 from config import API_ID, API_HASH
+
+logger = logging.getLogger(__name__)
 
 
 async def create_client(user_id: int) -> TelegramClient:
@@ -67,3 +74,66 @@ async def send_message_to_group(session_string: str, group_id: int, message: str
         raise e
     finally:
         await client.disconnect()
+
+
+async def check_account_health(session_string: str) -> str:
+    """
+    Semak kesihatan akaun Telegram.
+    Pulangkan: 'aktif' | 'flood' | 'banned' | 'sesi_tamat' | 'ralat'
+    """
+    if not session_string:
+        return "sesi_tamat"
+    client = await create_client_from_session(session_string)
+    try:
+        me = await client.get_me()
+        if me is None:
+            return "sesi_tamat"
+        return "aktif"
+    except FloodWaitError as e:
+        logger.warning("check_account_health FloodWait: %s saat", e.seconds)
+        return "flood"
+    except (UserDeactivatedBanError, PhoneNumberBannedError):
+        return "banned"
+    except (AuthKeyUnregisteredError,):
+        return "sesi_tamat"
+    except UserRestrictedError:
+        return "banned"
+    except Exception as e:
+        logger.warning("check_account_health ralat: %s", e)
+        return "ralat"
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+
+async def resolve_entity(session_string: str, identifier: str) -> dict | None:
+    """
+    Sahkan dan dapatkan maklumat kumpulan/saluran menggunakan ID atau username.
+    Pulangkan dict {id, title, username} atau None jika tidak dijumpai.
+    """
+    if not session_string:
+        return None
+    client = await create_client_from_session(session_string)
+    try:
+        raw = identifier.strip()
+        if raw.lstrip("-").isdigit():
+            target = int(raw)
+        else:
+            target = raw.lstrip("@")
+
+        entity = await client.get_entity(target)
+        return {
+            "id": entity.id,
+            "title": getattr(entity, "title", str(entity.id)),
+            "username": getattr(entity, "username", None),
+        }
+    except Exception as e:
+        logger.warning("resolve_entity gagal identifier=%s: %s", identifier, e)
+        return None
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
