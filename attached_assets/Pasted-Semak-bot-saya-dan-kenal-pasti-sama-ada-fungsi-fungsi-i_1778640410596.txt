@@ -1,0 +1,105 @@
+Semak bot saya dan kenal pasti sama ada fungsi-fungsi ini 
+
+SUDAH ADA atau BELUM dalam kod semasa.
+
+Jangan ubah apa-apa dulu. Buat laporan sahaja.
+
+SENARAI FUNGSI YANG PERLU ADA:
+
+FUNGSI UTAMA USERBOT:
+
+1. 📋 Status Akaun — semak status akaun userbot
+
+2. 🔕 Setting Notification — hidupkan/matikan pemberitahuan apabila mesej dihantar
+
+3. 🔄 Pindah Userbot — pindahkan userbot ke akaun Telegram lain
+
+4. ▶️ Hidupkan/Matikan — aktifkan atau nyahaktifkan userbot
+
+5. 🕐 Jadual Aktif — tetapkan waktu aktif dan tidak aktif userbot
+
+6. ⏸️ Tempoh Antara Hantar — tetapkan selang masa antara setiap penghantaran
+
+FUNGSI SENARAI SEBARKAN:
+
+7. 👁️ Lihat Kumpulan — paparkan semua kumpulan dalam senarai sebarkan
+
+8. 👁️ Lihat Mesej — paparkan semua mesej dalam senarai sebarkan
+
+9. ➕ Tambah Mesej — tambahkan mesej ke dalam senarai sebarkan
+
+10. ➕ Tambah Kumpulan — tambahkan kumpulan ke dalam senarai sebarkan
+
+11. ✂️ Buang Mesej — buangkan mesej dari senarai sebarkan
+
+12. ✂️ Buang Kumpulan — buangkan kumpulan dari senarai sebarkan
+
+13. 🧹 Kosongkan Mesej — padamkan semua mesej dari senarai sebarkan
+
+14. 🧹 Kosongkan Kumpulan — padamkan semua kumpulan dari senarai sebarkan
+
+FUNGSI BALAS AUTOMATIK:
+
+15. 👁️ Lihat Saluran — paparkan semua saluran balas automatik
+
+16. 👁️ Lihat Teks — paparkan semua teks balas automatik
+
+17. ➕ Tambah Saluran — tambahkan saluran ke balas automatik
+
+18. ➕ Tambah Teks — tambahkan teks balas automatik
+
+19. ✂️ Buang Saluran — buangkan saluran dari balas automatik
+
+20. ✂️ Buang Teks — buangkan teks balas automatik
+
+21. 🧹 Kosongkan Saluran — padamkan semua saluran balas automatik
+
+22. 🧹 Kosongkan Teks — padamkan semua teks balas automatik
+
+FUNGSI LAIN:
+
+23. 📧 Emel Sandaran — tetapkan emel untuk sandaran token
+
+24. 🛡️ Urus Pentadbir — tetapkan pentadbir sandaran dan kawalan akaun
+
+25. 🚀 Mod Lanjutan — senarai berbeza untuk kumpulan yang berbeza
+
+26. 🎁 Kod Rujukan — kongsi kod untuk mendapatkan syiling percuma
+
+27. 🛒 Kedai — beli userbot / topup syiling / pindah syiling
+
+28. 🗝️ Ambil Token — akses semula userbot yang telah terlog keluar
+
+29. ❓ Pusat Bantuan — paparkan panduan penggunaan bot
+
+FORMAT LAPORAN:
+
+Untuk setiap fungsi, nyatakan status:
+
+✅ ADA — fungsi sudah ada dan berfungsi
+
+⚠️ SEPARA — kod ada tetapi tidak lengkap
+
+❌ TIADA — fungsi belum ada langsung
+
+Contoh format laporan:
+
+1. 📋 Status Akaun — ✅ ADA
+
+2. 🔕 Urus Pemberitahuan — ❌ TIADA
+
+3. 🔄 Pindah Userbot — ⚠️ SEPARA
+
+SELEPAS buat laporan, TANYA saya dulu sebelum 
+
+buat sebarang perubahan pada kod.
+
+PENTING:
+
+- Jangan buat laman web / API / papan pemuka
+
+- Bot dijalankan dengan: cd bot && python main.py
+
+- Semua teks dalam Bahasa Melayu Malaysia
+
+- Jangan gunakan bahasa Indonesia
