@@ -33,7 +33,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 PLAN_COINS = {"PLUS": 300, "PRO": 600, "PREMIUM": 1000}
-PLAN_ICON  = {"PLUS": "⭐ PLUS", "PRO": "👑 PRO", "PREMIUM": "💎 PREMIUM"}
+PLAN_ICON  = {"PLUS": "⚡ PLUS", "PRO": "👑 PRO", "PREMIUM": "💎 PREMIUM"}
 
 
 def _duration_text(plan_key: str) -> str:
@@ -53,17 +53,15 @@ def _confirm_text(plan_key: str, months: int, balance: int) -> str:
     coins_per_month = PLAN_COINS.get(plan_key, 300)
     total           = coins_per_month * months
     after           = balance - total
-    cukup           = "✅" if balance >= total else "❌"
     return (
         f"📋 *Confirm Purchase*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"📦 Plan:\n*{icon}*\n\n"
-        f"🗓️ Tempoh:\n*{months} bulan*\n\n"
+        f"📦 Plan Selected:\n*{icon}*\n\n"
+        f"🗓️ Duration:\n*{months} bulan*\n\n"
         f"🪙 Total:\n*{total:,} Syiling*\n\n"
         "━━━━━━━━━━━━━━━\n"
-        f"💰 Balance korang: *{balance:,} Syiling*\n"
-        f"{cukup} Balance selepas: *{max(0, after):,} Syiling*\n\n"
-        "⚠️ *Confirm purchase?*"
+        f"💰 Wallet:\n*{balance:,} Syiling*\n\n"
+        f"📌 Balance After:\n*{max(0, after):,} Syiling*"
     )
 
 
@@ -95,7 +93,7 @@ async def cb_plan_dur(callback: CallbackQuery):
         text += (
             f"\n\n❌ *Baki tak cukup bro!*\n"
             f"Perlu lagi *{total - balance:,} Syiling*.\n"
-            "Reload via 💳 Topup Syiling."
+            "Reload via 🪙 Reload Syiling."
         )
 
     await callback.message.edit_text(
@@ -156,7 +154,7 @@ async def cb_plan_final(callback: CallbackQuery):
             f"❌ *Baki tak cukup bro!*\n\n"
             f"Need: *{total:,} Syiling*\n"
             f"Ada: *{balance:,} Syiling*\n\n"
-            "Reload dulu via 💳 Topup Syiling.",
+            "Reload dulu via 🪙 Reload Syiling.",
             parse_mode="Markdown",
         )
         return
@@ -199,8 +197,8 @@ async def cb_plan_final(callback: CallbackQuery):
             f"✅ *Secured! Userbot + Plan dah ready bro* 🎉\n"
             "━━━━━━━━━━━━━━━\n\n"
             f"🤖 Userbot ID:\n`{userbot_id}`\n\n"
-            f"📦 Plan: *{icon}*\n"
-            f"🗓️ Tempoh: *{months} bulan*\n"
+            f"📦 Plan Selected: *{icon}*\n"
+            f"🗓️ Duration: *{months} bulan*\n"
             f"🪙 Total: *{total:,} Syiling*\n"
             f"📆 Mula: *{started_str}*\n"
             f"📅 Tamat: *{expires_str}*\n\n"
@@ -212,12 +210,24 @@ async def cb_plan_final(callback: CallbackQuery):
             "2️⃣ *⚙️ Tetapan* — setup group & message\n"
             "3️⃣ Tekan 🚀 *Start Promote!*"
         )
+    elif context == "renew":
+        success = (
+            f"✅ *Plan activated, bot ready jalan auto!* 🔥\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            f"📦 Plan Selected: *{icon}*\n"
+            f"🗓️ Duration: *{months} bulan*\n"
+            f"🪙 Total: *{total:,} Syiling*\n"
+            f"📆 Mula: *{started_str}*\n"
+            f"📅 Tamat: *{expires_str}*\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            "Bot dah ready. Setup group & message dekat *⚙️ Tetapan* pastu tekan 🚀 Promote! 💨"
+        )
     else:
         success = (
             f"✅ *Lets gooo! Pelan korang dah aktif* 🔥\n"
             "━━━━━━━━━━━━━━━\n\n"
-            f"📦 Plan: *{icon}*\n"
-            f"🗓️ Tempoh: *{months} bulan*\n"
+            f"📦 Plan Selected: *{icon}*\n"
+            f"🗓️ Duration: *{months} bulan*\n"
             f"🪙 Total: *{total:,} Syiling*\n"
             f"📆 Mula: *{started_str}*\n"
             f"📅 Tamat: *{expires_str}*\n\n"
@@ -227,5 +237,5 @@ async def cb_plan_final(callback: CallbackQuery):
 
     await callback.message.edit_text(success, parse_mode="Markdown", reply_markup=back_to_menu_kb())
 
-    if context == "buy":
+    if context in ("buy", "renew"):
         await callback.message.answer("⚡ Back to Shop Zone:", reply_markup=kedai_menu_kb())

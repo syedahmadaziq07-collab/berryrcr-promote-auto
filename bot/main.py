@@ -163,6 +163,21 @@ async def check_tables():
     except Exception as e:
         issues.append(f"wallets: {e}")
 
+    # ── Migration hint — subscription columns ──
+    logger.info(
+        "=" * 60 + "\n"
+        "SQL MIGRATION — jalankan dalam Supabase SQL Editor jika column belum ada:\n"
+        "https://supabase.com/dashboard/project/ymlofdqtmsfftnuskgbq/sql\n\n"
+        "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_started_at     TIMESTAMPTZ;\n"
+        "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_duration_months INTEGER DEFAULT 1;\n"
+        "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expires_at          TIMESTAMPTZ;\n"
+        "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active              BOOLEAN DEFAULT TRUE;\n\n"
+        "  ALTER TABLE userbots ADD COLUMN IF NOT EXISTS plan_type TEXT;\n\n"
+        "  -- Kemaskini rekod lama\n"
+        "  UPDATE subscriptions SET active = TRUE WHERE active IS NULL;\n"
+        + "=" * 60
+    )
+
     # ── Jika ada isu, cetak SQL penuh ──
     if issues:
         logger.error("=" * 60)

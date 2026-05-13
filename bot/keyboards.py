@@ -31,9 +31,10 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
 def kedai_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🛍️ Beli Userbot"),    KeyboardButton(text="💳 Topup Syiling")],
-            [KeyboardButton(text="📤 Hantar Syiling"),  KeyboardButton(text="🎁 Gift Userbot")],
-            [KeyboardButton(text="🏆 Papan Pendahulu"), KeyboardButton(text="🏠 Laman Utama")],
+            [KeyboardButton(text="🪙 Reload Syiling"),   KeyboardButton(text="⏳ Tambah Bulan")],
+            [KeyboardButton(text="🛍️ Buy Userbot"),      KeyboardButton(text="📤 Send Syiling")],
+            [KeyboardButton(text="🎁 Gift Userbot"),     KeyboardButton(text="🏆 Top Leaderboard")],
+            [KeyboardButton(text="🏠 Back To Home")],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -61,7 +62,7 @@ def topup_packages_reply_kb() -> ReplyKeyboardMarkup:
 def beli_userbot_plans_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="⭐ PLUS — 300 Syiling / bulan",
+            text="⚡ PLUS — 300 Syiling / bulan",
             callback_data="buy_plan_select:PLUS",
         )],
         [InlineKeyboardButton(
@@ -69,6 +70,20 @@ def beli_userbot_plans_kb() -> InlineKeyboardMarkup:
             callback_data="buy_plan_select:PRO",
         )],
         [InlineKeyboardButton(text="❌ Batal", callback_data="beli_userbot_cancel")],
+    ])
+
+
+def tambah_bulan_plans_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="⚡ PLUS — 300 Syiling / bulan",
+            callback_data="buy_plan_select_renew:PLUS",
+        )],
+        [InlineKeyboardButton(
+            text="👑 PRO — 600 Syiling / bulan",
+            callback_data="buy_plan_select_renew:PRO",
+        )],
+        [InlineKeyboardButton(text="❌ Batal", callback_data="tambah_bulan_cancel")],
     ])
 
 
@@ -86,7 +101,12 @@ def plan_duration_kb(plan_key: str, context: str) -> InlineKeyboardMarkup:
             row = []
     if row:
         buttons.append(row)
-    back_map = {"buy": "beli_userbot_back", "act": "act_plan_select", "sub": "buy_userbot"}
+    back_map = {
+        "buy":    "beli_userbot_back",
+        "act":    "act_plan_select",
+        "sub":    "buy_userbot",
+        "renew":  "tambah_bulan_plan_back",
+    }
     buttons.append([InlineKeyboardButton(text="⬅️ Kembali", callback_data=back_map.get(context, "main_menu"))])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

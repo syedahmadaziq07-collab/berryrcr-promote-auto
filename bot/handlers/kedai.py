@@ -14,6 +14,7 @@ from config import ADMIN_ID, USERBOT_PRICE, WEBSITE_URL, COIN_PLANS
 from keyboards import (
     kedai_menu_kb,
     beli_userbot_plans_kb,
+    tambah_bulan_plans_kb,
     beli_userbot_confirm_kb,
     main_menu_kb,
     topup_packages_inline_kb,
@@ -155,7 +156,7 @@ async def msg_kedai(message: Message, state: FSMContext):
 # 🏆 PAPAN PENDAHULU
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🏆 Papan Pendahulu")
+@router.message(F.text == "🏆 Top Leaderboard")
 async def msg_leaderboard(message: Message):
     leaders = await db.get_leaderboard(limit=10)
 
@@ -184,7 +185,7 @@ async def msg_leaderboard(message: Message):
 # 💳 TOPUP SYILING — Langkah 1: Papar pakej (Inline Keyboard)
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "💳 Topup Syiling")
+@router.message(F.text == "🪙 Reload Syiling")
 async def msg_topup(message: Message, state: FSMContext):
     # BUG 1 FIX: Jika user sudah dalam proses topup, jangan buka baru
     current_state = await state.get_state()
@@ -462,7 +463,7 @@ async def cb_topup_cancel(callback: CallbackQuery, state: FSMContext):
 # 🛍 BELI USERBOT — Langkah 1: Papar Pilihan Pelan
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🛍️ Beli Userbot")
+@router.message(F.text == "🛍️ Buy Userbot")
 async def msg_beli_userbot(message: Message, state: FSMContext):
     await state.clear()
     uid         = message.from_user.id
@@ -673,7 +674,7 @@ async def cb_beli_userbot_back(callback: CallbackQuery):
 # 📤 HANTAR SYILING
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "📤 Hantar Syiling")
+@router.message(F.text == "📤 Send Syiling")
 async def msg_hantar_syiling(message: Message, state: FSMContext):
     await state.clear()
     uid     = message.from_user.id
@@ -874,7 +875,7 @@ async def process_gift_target(message: Message, state: FSMContext):
 # 🏠 LAMAN UTAMA
 # ─────────────────────────────────────────────
 
-@router.message(F.text == "🏠 Laman Utama")
+@router.message(F.text == "🏠 Back To Home")
 async def msg_laman_utama(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
@@ -882,3 +883,121 @@ async def msg_laman_utama(message: Message, state: FSMContext):
         parse_mode="Markdown",
         reply_markup=main_menu_kb(),
     )
+
+
+# ─────────────────────────────────────────────
+# ⏳ TAMBAH BULAN — Langkah 1: Pilih Plan
+# ─────────────────────────────────────────────
+
+@router.message(F.text == "⏳ Tambah Bulan")
+async def msg_tambah_bulan(message: Message, state: FSMContext):
+    await state.clear()
+    uid         = message.from_user.id
+    userbot_rec = await db.get_userbot(uid)
+
+    if not userbot_rec:
+        await message.answer(
+            "⚠️ *Korang belum ada Userbot!*\n\n"
+            "Beli userbot dulu dekat 🛍️ Buy Userbot baru boleh tambah bulan.",
+            parse_mode="Markdown",
+            reply_markup=kedai_menu_kb(),
+        )
+        return
+
+    balance = await db.get_wallet(uid)
+    sub     = await db.get_active_subscription(uid)
+
+    if sub:
+        plan_now = sub.get("plan", "—")
+        expires  = sub.get("expires_at", "")
+        if expires:
+            try:
+                from datetime import datetime, timezone, timedelta
+                _MY_TZ = timezone(timedelta(hours=8))
+                if isinstance(expires, str):
+                    expires = expires.replace("Z", "+00:00")
+                    exp_dt  = datetime.fromisoformat(expires).astimezone(_MY_TZ)
+                else:
+                    exp_dt  = expires.astimezone(_MY_TZ)
+                expires_display = exp_dt.strftime("%d %b %Y")
+            except Exception:
+                expires_display = str(expires)[:10]
+        else:
+            expires_display = "—"
+        status_line = (
+            f"📦 Plan Semasa: *{plan_now}*\n"
+            f"📅 Tamat: *{expires_display}*\n\n"
+        )
+    else:
+        status_line = "📦 Plan Semasa: *Tiada*\n\n"
+
+    text = (
+        "⏳ *Tambah Bulan*\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"{status_line}"
+        f"💰 Wallet: *{balance:,} Syiling*\n\n"
+        "Pilih plan yang korang nak aktifkan:"
+    )
+    await message.answer(text, parse_mode="Markdown", reply_markup=tambah_bulan_plans_kb())
+
+
+# ─────────────────────────────────────────────
+# ⏳ TAMBAH BULAN — Langkah 2: Pilih Plan → Pilih Tempoh
+# ─────────────────────────────────────────────
+
+_PLAN_ICON_RENEW  = {"PLUS": "⚡ PLUS", "PRO": "👑 PRO"}
+_PLAN_COINS_RENEW = {"PLUS": 300, "PRO": 600}
+
+
+@router.callback_query(F.data.startswith("buy_plan_select_renew:"))
+async def cb_tambah_bulan_plan_select(callback: CallbackQuery):
+    await callback.answer()
+    plan_key = callback.data.split(":")[1].upper()
+
+    if plan_key not in _PLAN_COINS_RENEW:
+        await callback.answer("⚠️ Pelan tidak sah.", show_alert=True)
+        return
+
+    icon            = _PLAN_ICON_RENEW.get(plan_key, plan_key)
+    coins_per_month = _PLAN_COINS_RENEW[plan_key]
+
+    text = (
+        "🗓️ *Pilih Tempoh*\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"Plan: *{icon}*\n"
+        f"Rate: *{coins_per_month:,} Syiling / bulan*\n\n"
+        "Berapa bulan korang nak tambah? 👇"
+    )
+    await callback.message.edit_text(
+        text, parse_mode="Markdown",
+        reply_markup=plan_duration_kb(plan_key, "renew"),
+    )
+
+
+@router.callback_query(F.data == "tambah_bulan_plan_back")
+async def cb_tambah_bulan_plan_back(callback: CallbackQuery):
+    await callback.answer()
+    uid     = callback.from_user.id
+    balance = await db.get_wallet(uid)
+    sub     = await db.get_active_subscription(uid)
+    plan_now = sub.get("plan", "—") if sub else "Tiada"
+    text = (
+        "⏳ *Tambah Bulan*\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"📦 Plan Semasa: *{plan_now}*\n"
+        f"💰 Wallet: *{balance:,} Syiling*\n\n"
+        "Pilih plan yang korang nak aktifkan:"
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=tambah_bulan_plans_kb())
+
+
+@router.callback_query(F.data == "tambah_bulan_cancel")
+async def cb_tambah_bulan_cancel(callback: CallbackQuery):
+    await callback.answer("❌ Dibatalkan.")
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    uid  = callback.from_user.id
+    text = await _kedai_text(uid)
+    await callback.message.answer(text, parse_mode="Markdown", reply_markup=kedai_menu_kb())

@@ -1,0 +1,159 @@
+R&D dan upgrade sistem subscription bot supaya lebih clean, premium dan mudah faham.
+
+JANGAN buat web/dashboard/API.
+Telegram bot Python aiogram sahaja.
+JANGAN sentuh OTP/login/topup/payment flow yang sudah stabil.
+Fokus sistem plan, tambah bulan, pricing, UI dan validation sahaja.
+
+━━━━━━━━━━━━━━━
+HARGA LATEST
+━━━━━━━━━━━━━━━
+
+🤖 Userbot:
+RM2 sekali beli
+
+⚡ PLUS:
+300 Syiling / bulan
+
+👑 PRO:
+600 Syiling / bulan
+
+🪙 Topup Syiling:
+300 Syiling = RM3
+600 Syiling = RM6
+900 Syiling = RM8
+1200 Syiling = RM11
+
+JANGAN letak label discount/bonus/jimat di sebelah syiling.
+
+━━━━━━━━━━━━━━━
+FLOW BARU YANG SAYA MAHU
+━━━━━━━━━━━━━━━
+
+1. User topup syiling dahulu.
+2. Syiling masuk wallet.
+3. User pergi:
+🛒 Shop Zone
+→ ⏳ Tambah Bulan
+
+4. Bot papar pilihan plan:
+⚡ PLUS — 300 Syiling / bulan
+👑 PRO — 600 Syiling / bulan
+
+5. Lepas pilih plan, bot papar pilihan tempoh:
+1 bulan
+2 bulan
+3 bulan
+4 bulan
+5 bulan
+6 bulan
+7 bulan
+8 bulan
+9 bulan
+10 bulan
+11 bulan
+12 bulan
+
+6. Bot kira total:
+PLUS = 300 × jumlah bulan
+PRO = 600 × jumlah bulan
+
+7. Papar confirmation:
+
+📦 Plan Selected:
+<PLUS/PRO>
+
+🗓️ Duration:
+<x> bulan
+
+🪙 Total:
+<x> Syiling
+
+💰 Wallet:
+<balance> Syiling
+
+📌 Balance After:
+<balance_after> Syiling
+
+Button:
+✅ Confirm
+⬅️ Back
+
+8. Bila confirm:
+- deduct syiling dari wallet
+- activate/update plan
+- update expiry date
+- update Kedai / Status Account
+
+━━━━━━━━━━━━━━━
+RENEWAL LOGIC
+━━━━━━━━━━━━━━━
+
+Jika plan masih aktif:
+- tambah bulan dari expiry lama
+- jangan reset baki hari user
+
+Jika plan sudah expired:
+- kira dari tarikh semasa
+
+Contoh:
+Expiry lama: 13 Jun
+User tambah 1 bulan
+Expiry baru: 13 Julai
+
+━━━━━━━━━━━━━━━
+MENU KEDAI
+━━━━━━━━━━━━━━━
+
+Pastikan Shop Zone ada button:
+
+🪙 Reload Syiling
+⏳ Tambah Bulan
+🛍️ Buy Userbot
+📤 Send Syiling
+🎁 Gift Userbot
+🏆 Top Leaderboard
+🏠 Back To Home
+
+━━━━━━━━━━━━━━━
+SUPABASE
+━━━━━━━━━━━━━━━
+
+Pastikan table userbots/subscriptions support:
+
+plan_type
+plan_started_at
+plan_expires_at
+plan_duration_months
+
+Jika column belum ada, print SQL migration lengkap sahaja.
+Jangan auto delete data lama.
+
+━━━━━━━━━━━━━━━
+STYLE
+━━━━━━━━━━━━━━━
+
+Semua wording guna Bahasa Melayu + English genz style.
+Contoh:
+- Tambah Bulan
+- Plan Selected
+- Duration
+- Wallet
+- Balance After
+- Confirm Purchase
+- Plan activated, bot ready jalan auto
+
+━━━━━━━━━━━━━━━
+PENTING
+━━━━━━━━━━━━━━━
+
+1. Jangan ubah callback_data lama jika tak perlu.
+2. Jangan rosakkan flow topup syiling.
+3. Jangan rosakkan flow Buy Userbot RM2.
+4. Jangan sentuh OTP/login/session.
+5. Jangan sentuh promote scheduler.
+6. Jangan tambah web dashboard.
+7. Pastikan semua button ada callback.answer() awal.
+8. Pastikan error wallet tak cukup syiling keluar mesej clear.
+9. Tunjukkan fail yang diubah sahaja.
+10. Restart bot dan tunjuk log ringka
