@@ -15,6 +15,8 @@ Context values:
 import logging
 from datetime import datetime, timezone, timedelta
 
+_MY_TZ = timezone(timedelta(hours=8))
+
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery
 
@@ -188,10 +190,9 @@ async def cb_plan_final(callback: CallbackQuery):
             except Exception as e:
                 logger.warning("plan_final: update session userbot_id gagal uid=%s: %s", uid, e)
 
-    await db.create_subscription(uid, plan_key, months)
-
-    expires     = datetime.now(timezone.utc) + timedelta(days=30 * months)
+    started, expires = await db.create_subscription(uid, plan_key, months)
     expires_str = expires.strftime("%d %b %Y")
+    started_str = started.strftime("%d %b %Y")
 
     if context == "buy" and userbot_id:
         success = (
@@ -201,6 +202,7 @@ async def cb_plan_final(callback: CallbackQuery):
             f"📦 Plan: *{icon}*\n"
             f"🗓️ Tempoh: *{months} bulan*\n"
             f"🪙 Total: *{total:,} Syiling*\n"
+            f"📆 Mula: *{started_str}*\n"
             f"📅 Tamat: *{expires_str}*\n\n"
             "━━━━━━━━━━━━━━━\n"
             "⚠️ *Save Userbot ID korang!*\n"
@@ -217,6 +219,7 @@ async def cb_plan_final(callback: CallbackQuery):
             f"📦 Plan: *{icon}*\n"
             f"🗓️ Tempoh: *{months} bulan*\n"
             f"🪙 Total: *{total:,} Syiling*\n"
+            f"📆 Mula: *{started_str}*\n"
             f"📅 Tamat: *{expires_str}*\n\n"
             "━━━━━━━━━━━━━━━\n"
             "Bot dah ready bro! Setup group & message dekat *⚙️ Tetapan* pastu tekan 🚀 Promote! 💨"

@@ -18,6 +18,7 @@ CREATE TABLE userbots (
 import logging
 import string
 import random
+from datetime import timezone, timedelta
 from services.supabase_service import get_client
 
 logger = logging.getLogger(__name__)
@@ -232,38 +233,106 @@ PLAN_DURATION_DAYS: dict[str, int] = {
     "PREMIUM": 30,
 }
 
+# Malaysia Standard Time — UTC+8
+_MY_TZ = timezone(timedelta(hours=8))
+
 
 async def create_subscription(user_id: int, plan: str, months: int = 1):
     """
-    Simpan subscription baru dengan expires_at dikira secara automatik.
-    months: bilangan bulan langganan (1-12). Default 1 bulan.
-    Resilient: Cuba set active=False pada rekod lama dulu; jika gagal (column tiada), teruskan insert.
+    Simpan subscription baru dengan logik renewal yang betul (Malaysia timezone).
+
+    Stack logic:
+    • Jika subscription AKTIF & expires_at > sekarang  → sambung dari expires_at lama
+    • Jika subscription dah tamat / tiada              → mula dari sekarang (masa Malaysia)
+
+    Kolum yang disimpan:
+      plan, active, created_at, expires_at,
+      plan_started_at, plan_duration_months
     """
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime
     client = await get_client()
+    months = max(1, int(months))
+
+    # Masa sekarang dalam timezone Malaysia
+    now_my = datetime.now(_MY_TZ)
+
+    # Tentukan base date untuk extend
+    base_date = now_my  # default: mula dari sekarang
+    try:
+        existing = (
+            await client.table("subscriptions")
+            .select("expires_at, active")
+            .eq("user_id", user_id)
+            .eq("active", True)
+            .order("expires_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            raw_exp = existing.data[0].get("expires_at")
+            if raw_exp:
+                # Parse ISO string → aware datetime
+                if isinstance(raw_exp, str):
+                    raw_exp = raw_exp.replace("Z", "+00:00")
+                    exp_dt = datetime.fromisoformat(raw_exp).astimezone(_MY_TZ)
+                else:
+                    exp_dt = raw_exp.astimezone(_MY_TZ)
+                # Kalau masih belum tamat — extend dari expiry lama
+                if exp_dt > now_my:
+                    base_date = exp_dt
+                    logger.info(
+                        "create_subscription: uid=%s — extend dari expiry lama %s",
+                        user_id, exp_dt.strftime("%Y-%m-%d"),
+                    )
+                else:
+                    logger.info(
+                        "create_subscription: uid=%s — sub dah tamat %s, mula dari sekarang",
+                        user_id, exp_dt.strftime("%Y-%m-%d"),
+                    )
+    except Exception as e:
+        logger.warning("create_subscription: gagal baca existing sub uid=%s: %s", user_id, e)
+
+    new_expires = base_date + timedelta(days=30 * months)
+
+    # Nyahaktifkan semua sub lama
     try:
         await client.table("subscriptions").update({"active": False}).eq("user_id", user_id).execute()
     except Exception as e:
-        logger.warning("create_subscription: update active=False gagal uid=%s: %s (column mungkin tiada)", user_id, e)
+        logger.warning("create_subscription: update active=False gagal uid=%s: %s", user_id, e)
 
-    now = datetime.now(timezone.utc)
-    duration_days = 30 * max(1, int(months))
-    expires_at = now + timedelta(days=duration_days)
-
+    # Insert sub baru dengan kolum penuh
+    record = {
+        "user_id":              user_id,
+        "plan":                 plan,
+        "active":               True,
+        "created_at":           now_my.isoformat(),
+        "expires_at":           new_expires.isoformat(),
+        "plan_started_at":      base_date.isoformat(),
+        "plan_duration_months": months,
+    }
     try:
-        await client.table("subscriptions").insert({
-            "user_id": user_id,
-            "plan": plan,
-            "active": True,
-            "created_at": now.isoformat(),
-            "expires_at": expires_at.isoformat(),
-        }).execute()
+        await client.table("subscriptions").insert(record).execute()
     except Exception as e:
-        logger.warning("create_subscription: insert penuh gagal uid=%s: %s — cuba tanpa active/expires", user_id, e)
-        await client.table("subscriptions").insert(
-            {"user_id": user_id, "plan": plan}
-        ).execute()
-    logger.info("create_subscription: uid=%s plan=%s months=%s tamat=%s", user_id, plan, months, expires_at.strftime("%Y-%m-%d"))
+        logger.warning(
+            "create_subscription: insert penuh gagal uid=%s: %s — cuba tanpa kolum baru",
+            user_id, e,
+        )
+        # Fallback: insert tanpa kolum baru (schema lama)
+        await client.table("subscriptions").insert({
+            "user_id":    user_id,
+            "plan":       plan,
+            "active":     True,
+            "created_at": now_my.isoformat(),
+            "expires_at": new_expires.isoformat(),
+        }).execute()
+
+    logger.info(
+        "create_subscription: uid=%s plan=%s months=%s mula=%s tamat=%s",
+        user_id, plan, months,
+        base_date.strftime("%Y-%m-%d"),
+        new_expires.strftime("%Y-%m-%d"),
+    )
+    return base_date, new_expires
 
 
 # ─────────────────────────────────────────────

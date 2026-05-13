@@ -129,11 +129,14 @@ async def check_tables():
                 "KRITIKAL: Column 'active' TIADA dalam table subscriptions!\n"
                 "Jalankan SQL ini dalam Supabase SQL Editor:\n"
                 "https://supabase.com/dashboard/project/ymlofdqtmsfftnuskgbq/sql\n\n"
-                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active     BOOLEAN DEFAULT TRUE;\n"
-                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();\n"
-                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;\n\n"
+                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active              BOOLEAN DEFAULT TRUE;\n"
+                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at          TIMESTAMPTZ DEFAULT NOW();\n"
+                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expires_at          TIMESTAMPTZ;\n"
+                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_started_at     TIMESTAMPTZ;\n"
+                "  ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_duration_months INTEGER DEFAULT 1;\n\n"
                 "  -- Kemaskini rekod lama supaya active = TRUE\n"
                 "  UPDATE subscriptions SET active = TRUE WHERE active IS NULL;\n"
+                "  UPDATE subscriptions SET plan_started_at = created_at WHERE plan_started_at IS NULL;\n"
                 + "=" * 60
             )
     else:

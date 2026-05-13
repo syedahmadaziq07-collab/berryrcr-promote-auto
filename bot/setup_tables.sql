@@ -31,11 +31,15 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 );
 
 -- MIGRATION: Tambah column hilang jika table sudah wujud dengan schema lama
-ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active     BOOLEAN DEFAULT TRUE;
-ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active              BOOLEAN DEFAULT TRUE;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at          TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expires_at          TIMESTAMPTZ;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_started_at     TIMESTAMPTZ;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_duration_months INTEGER DEFAULT 1;
 -- Kemaskini rekod lama yang tiada nilai active
 UPDATE subscriptions SET active = TRUE WHERE active IS NULL;
+-- Backfill plan_started_at untuk rekod lama (guna created_at jika kosong)
+UPDATE subscriptions SET plan_started_at = created_at WHERE plan_started_at IS NULL;
 
 -- TABLE: sessions
 CREATE TABLE IF NOT EXISTS sessions (
