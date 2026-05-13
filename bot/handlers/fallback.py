@@ -30,6 +30,19 @@ async def fallback_handler(message: Message, state: FSMContext):
     if current_state is not None:
         return
 
+    # Jika input nampak seperti kod OTP (digit sahaja, atau digit dengan jarak)
+    # — kemungkinan bot restart dan state hilang
+    cleaned = text.strip().replace(" ", "")
+    if cleaned.isdigit() and 4 <= len(cleaned) <= 7:
+        logger.info("Fallback OTP-like input uid=%s — sesi mungkin tamat", message.from_user.id)
+        await message.answer(
+            "⚠️ Sesi anda telah tamat.\n"
+            "Sila mulakan semula proses sambung akaun melalui *📚 Buat Userbot*.",
+            parse_mode="Markdown",
+            reply_markup=main_menu_kb(),
+        )
+        return
+
     logger.info("Fallback: uid=%s state=None text=%r", message.from_user.id, text)
     await message.answer(
         "❓ Sila gunakan menu di bawah untuk navigasi.",

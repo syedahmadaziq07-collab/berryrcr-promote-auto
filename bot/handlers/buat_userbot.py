@@ -238,15 +238,26 @@ async def process_phone(message: Message, state: FSMContext):
 @router.message(BuatUserbotFSM.waiting_otp)
 async def process_otp(message: Message, state: FSMContext):
     uid = message.from_user.id
-    otp = message.text.strip().replace(" ", "")
+    otp = message.text.strip().replace(" ", "") if message.text else ""
     pending = _pending.get(uid)
 
     if not pending:
+        await state.clear()
         await message.answer(
-            "❌ Sesi tamat. Sila mula semula.",
+            "⚠️ Sesi anda telah tamat.\n"
+            "Sila mulakan semula proses sambung akaun.",
             reply_markup=main_menu_kb(),
         )
-        await state.clear()
+        return
+
+    if not otp.isdigit():
+        await message.answer(
+            "❌ Kod OTP tidak sah.\n"
+            "Sila masukkan nombor sahaja.\n\n"
+            "Contoh jika OTP `12345`:\n`1 2 3 4 5` (dengan jarak)",
+            parse_mode="Markdown",
+            reply_markup=cancel_kb(),
+        )
         return
 
     msg = await message.answer("⏳ Mengesahkan OTP...")
@@ -270,7 +281,8 @@ async def process_otp(message: Message, state: FSMContext):
         if "PHONE_CODE_INVALID" in err:
             await msg.edit_text(
                 "❌ Kod OTP tidak sah. Sila masukkan semula.\n\n"
-                "Contoh jika OTP `12345`: taip `1 2 3 4 5` (dengan jarak)"
+                "Contoh jika OTP `12345`: taip `1 2 3 4 5` (dengan jarak)",
+                reply_markup=cancel_kb(),
             )
         elif "PHONE_CODE_EXPIRED" in err:
             await _cleanup_pending(uid)
