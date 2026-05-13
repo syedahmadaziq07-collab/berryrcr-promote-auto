@@ -27,22 +27,24 @@ from keyboards import (
 router = Router()
 logger = logging.getLogger(__name__)
 
+# _HERE  = bot/
+# _ROOT  = project root  (workspace/)
 _HERE   = os.path.dirname(os.path.dirname(__file__))
-QR_PATH = os.path.join(_HERE, "media", "qr_payment.jpg")
+_ROOT   = os.path.dirname(_HERE)
+QR_PATH = os.path.join(_ROOT, "assets", "payment", "qr.jpg")
 
 
-def _ensure_media_dir() -> None:
-    """Pastikan folder media wujud. Jika tiada QR image, log amaran sekali sahaja."""
-    os.makedirs(os.path.join(_HERE, "media"), exist_ok=True)
+def _ensure_qr_dir() -> None:
+    """Pastikan folder assets/payment wujud. Log amaran jika QR belum diupload."""
+    os.makedirs(os.path.join(_ROOT, "assets", "payment"), exist_ok=True)
     if not os.path.exists(QR_PATH):
         logger.warning(
-            "QR image tidak dijumpai: %s — sila letak gambar QR sebenar di sana. "
-            "Bot akan gunakan teks sahaja sehingga gambar diletakkan.",
+            "QR image tidak dijumpai: %s — admin perlu upload gambar QR ke assets/payment/qr.jpg",
             QR_PATH,
         )
 
 
-_ensure_media_dir()
+_ensure_qr_dir()
 
 
 # ─────────────────────────────────────────────
@@ -319,26 +321,33 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
     except Exception:
         pass
 
+    if not os.path.exists(QR_PATH):
+        logger.warning("QR_PATH tidak wujud semasa topup_proceed uid=%s: %s", uid, QR_PATH)
+        await bot.send_message(
+            uid,
+            "❌ QR payment belum dimuat naik admin.\n\n"
+            f"Sila hubungi @berryrcr untuk proses manual.\n\n"
+            f"ID Pesanan anda: `{order_id}`",
+            parse_mode="Markdown",
+            reply_markup=topup_payment_kb(order_id),
+        )
+        await state.set_state(TopupFSM.waiting_receipt)
+        return
+
     try:
-        if os.path.exists(QR_PATH):
-            qr_file = FSInputFile(QR_PATH)
-            await bot.send_photo(
-                uid, qr_file, caption=caption,
-                parse_mode="Markdown",
-                reply_markup=topup_payment_kb(order_id),
-            )
-        else:
-            await bot.send_message(
-                uid, caption,
-                parse_mode="Markdown",
-                reply_markup=topup_payment_kb(order_id),
-            )
+        qr_file = FSInputFile(QR_PATH)
+        await bot.send_photo(
+            uid, qr_file, caption=caption,
+            parse_mode="Markdown",
+            reply_markup=topup_payment_kb(order_id),
+        )
     except Exception as e:
-        logger.error("topup_proceed send msg error uid=%s: %s", uid, e)
+        logger.error("topup_proceed send photo error uid=%s: %s", uid, e)
         await bot.send_message(
             uid,
             f"⚠️ Gagal hantar QR kod. Sila hubungi @berryrcr.\n\nID Pesanan anda: `{order_id}`",
             parse_mode="Markdown",
+            reply_markup=topup_payment_kb(order_id),
         )
 
 
