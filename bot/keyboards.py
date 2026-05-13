@@ -144,33 +144,33 @@ def topup_request_admin_kb(
 def tetapan_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="👥 Kumpulan",            callback_data="groups_manage"),
-            InlineKeyboardButton(text="📋 Senarai Mesej",       callback_data="bcast_menu"),
+            InlineKeyboardButton(text="👥 Manage Group",        callback_data="groups_manage"),
+            InlineKeyboardButton(text="📝 Message List",        callback_data="bcast_menu"),
         ],
         [
-            InlineKeyboardButton(text="📝 Tetapkan Mesej",      callback_data="set_message"),
-            InlineKeyboardButton(text="⏱️ Jarak Masa",          callback_data="set_delay"),
+            InlineKeyboardButton(text="✏️ Edit Message",        callback_data="set_message"),
+            InlineKeyboardButton(text="⏱️ Delay Timer",         callback_data="set_delay"),
         ],
         [
-            InlineKeyboardButton(text="🪪 Status Account",       callback_data="status"),
-            InlineKeyboardButton(text="🤖 Balas Auto",          callback_data="autoreply_menu"),
+            InlineKeyboardButton(text="🪪 Status Account",      callback_data="status"),
+            InlineKeyboardButton(text="🤖 Auto Reply",          callback_data="autoreply_menu"),
         ],
         [
-            InlineKeyboardButton(text="🕐 Jadual Aktif",        callback_data="schedule_menu"),
-            InlineKeyboardButton(text="🔬 Mod Lanjutan",        callback_data="expert_menu"),
+            InlineKeyboardButton(text="🕒 Active Schedule",     callback_data="schedule_menu"),
+            InlineKeyboardButton(text="🧪 Advanced Mode",       callback_data="expert_menu"),
         ],
         [
-            InlineKeyboardButton(text="🔕 Pemberitahuan",       callback_data="notif_menu"),
-            InlineKeyboardButton(text="📧 Emel Sandaran",       callback_data="email_menu"),
+            InlineKeyboardButton(text="🔔 Notification",        callback_data="notif_menu"),
+            InlineKeyboardButton(text="📩 Backup Email",        callback_data="email_menu"),
         ],
         [
-            InlineKeyboardButton(text="🎁 Kod Rujukan",         callback_data="referral_menu"),
+            InlineKeyboardButton(text="🎁 Referral Code",       callback_data="referral_menu"),
         ],
         [
-            InlineKeyboardButton(text="🚀 Mula Promote",        callback_data="start_promote"),
-            InlineKeyboardButton(text="⏹️ Henti Promote",       callback_data="stop_promote"),
+            InlineKeyboardButton(text="🚀 Start Promote",       callback_data="start_promote"),
+            InlineKeyboardButton(text="🛑 Stop Promote",        callback_data="stop_promote"),
         ],
-        [InlineKeyboardButton(text="🔙 Kembali",                callback_data="main_menu")],
+        [InlineKeyboardButton(text="⬅️ Back",                   callback_data="main_menu")],
     ])
 
 

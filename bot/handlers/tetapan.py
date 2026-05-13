@@ -37,21 +37,21 @@ async def msg_tetapan(message: Message, state: FSMContext):
     settings = await db.get_promo_settings(uid)
     groups   = await db.get_selected_groups(uid)
 
-    plan        = sub["plan"] if sub else "Tiada"
+    plan        = sub["plan"] if sub else "None"
     tg_user     = session.get("tg_username", "") if session else ""
     phone       = session.get("phone_number", "") if session else ""
-    acc         = f"@{tg_user}" if tg_user else (f"`{phone}`" if phone else "Belum disambungkan")
+    acc         = f"@{tg_user}" if tg_user else (f"`{phone}`" if phone else "Not connected")
     is_running  = settings.get("is_running", False) if settings else False
-    status_icon = "🟢 Aktif" if is_running else "🔴 Tidak aktif"
+    status_icon = "Active 🟢" if is_running else "Not Active 🔴"
 
     text = (
-        "⚙️ *Tetapan*\n"
+        "⚙️ *Control Panel*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"📋 Pelan: *{plan}*\n"
-        f"📱 Akaun: {acc}\n"
-        f"👥 Kumpulan: *{len(groups)} dipilih*\n"
-        f"🔑 Status: *{status_icon}*\n\n"
-        "Pilih tetapan di bawah:"
+        f"📦 Current Plan: *{plan}*\n"
+        f"📱 Connected Account: {acc}\n"
+        f"👥 Selected Group: *{len(groups)}*\n"
+        f"🤖 Bot Status: *{status_icon}*\n\n"
+        "Customize setting korang dekat bawah 👇"
     )
     await message.answer(text, parse_mode="Markdown", reply_markup=tetapan_kb())
 
@@ -75,12 +75,12 @@ async def cb_set_message(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     settings = await db.get_promo_settings(uid)
     current  = (settings.get("message") or settings.get("message_text")) if settings else None
-    preview  = f"```\n{current}\n```" if current else "_Tiada mesej ditetapkan_"
+    preview  = f"```\n{current}\n```" if current else "_No message set yet_"
 
     await callback.message.edit_text(
-        f"📝 *Tetapkan Mesej Promosi*\n\n"
-        f"Mesej semasa:\n{preview}\n\n"
-        f"Hantar mesej promosi baharu anda:",
+        f"✏️ *Edit Message*\n\n"
+        f"Current message:\n{preview}\n\n"
+        f"Send your new promo message:",
         parse_mode="Markdown",
         reply_markup=cancel_kb(),
     )
@@ -91,11 +91,11 @@ async def cb_set_message(callback: CallbackQuery, state: FSMContext):
 async def process_message(message: Message, state: FSMContext):
     msg_text = message.text
     if not msg_text or not msg_text.strip():
-        await message.answer("⚠️ Mesej tidak boleh kosong.", reply_markup=cancel_kb())
+        await message.answer("⚠️ Message can't be empty.", reply_markup=cancel_kb())
         return
     if len(msg_text) > 4000:
         await message.answer(
-            "⚠️ Mesej terlalu panjang (maksimum 4,000 aksara).",
+            "⚠️ Too long lah — max 4,000 characters.",
             reply_markup=cancel_kb(),
         )
         return
@@ -103,7 +103,7 @@ async def process_message(message: Message, state: FSMContext):
     await db.update_promo_message(message.from_user.id, msg_text)
     preview = (msg_text[:200] + "...") if len(msg_text) > 200 else msg_text
     await message.answer(
-        f"✅ *Mesej Berjaya Disimpan!*\n\nPratonton:\n```\n{preview}\n```",
+        f"✅ *Message saved!*\n\nPreview:\n```\n{preview}\n```",
         parse_mode="Markdown",
         reply_markup=back_to_menu_kb(),
     )
@@ -131,11 +131,11 @@ async def cb_set_delay(callback: CallbackQuery, state: FSMContext):
     current_delay     = settings["delay_minutes"] if settings else MIN_DELAY_MINUTES
 
     await callback.message.edit_text(
-        f"⏱️ *Tetapkan Jarak Masa Promote*\n\n"
-        f"Jarak masa semasa: *{current_delay} minit*\n"
-        f"Minimum jarak masa: *{MIN_DELAY_MINUTES} minit*\n\n"
-        f"Hantar jarak masa dalam minit:\n"
-        f"Contoh: `60` = setiap 1 jam | `120` = setiap 2 jam",
+        f"⏱️ *Delay Timer*\n\n"
+        f"Current delay: *{current_delay} min*\n"
+        f"Minimum delay: *{MIN_DELAY_MINUTES} min*\n\n"
+        f"Send delay in minutes:\n"
+        f"e.g. `60` = every 1 hour | `120` = every 2 hours",
         parse_mode="Markdown",
         reply_markup=cancel_kb(),
     )
@@ -147,7 +147,7 @@ async def process_delay(message: Message, state: FSMContext):
     text = message.text.strip()
     if not text.isdigit():
         await message.answer(
-            "⚠️ Sila masukkan nombor sahaja.\nContoh: `60`",
+            "⚠️ Numbers only bro.\ne.g. `60`",
             parse_mode="Markdown",
             reply_markup=cancel_kb(),
         )
@@ -156,7 +156,7 @@ async def process_delay(message: Message, state: FSMContext):
     delay = int(text)
     if delay < MIN_DELAY_MINUTES:
         await message.answer(
-            f"⚠️ Jarak masa minimum ialah *{MIN_DELAY_MINUTES} minit*.\n\nSila masukkan semula:",
+            f"⚠️ Minimum delay is *{MIN_DELAY_MINUTES} min* — try again:",
             parse_mode="Markdown",
             reply_markup=cancel_kb(),
         )
@@ -165,11 +165,11 @@ async def process_delay(message: Message, state: FSMContext):
     await db.update_promo_delay(message.from_user.id, delay)
     hours = delay // 60
     mins  = delay % 60
-    human = f"{hours} jam {mins} minit" if hours > 0 else f"{mins} minit"
+    human = f"{hours}h {mins}m" if hours > 0 else f"{mins}m"
 
     await message.answer(
-        f"✅ *Jarak Masa Berjaya Ditetapkan!*\n\n"
-        f"Mesej akan dihantar setiap *{human}*.",
+        f"✅ *Delay updated!*\n\n"
+        f"Message will be sent every *{human}*.",
         parse_mode="Markdown",
         reply_markup=back_to_menu_kb(),
     )

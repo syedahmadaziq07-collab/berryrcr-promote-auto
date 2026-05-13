@@ -29,20 +29,20 @@ async def cb_notif_menu(callback: CallbackQuery):
     await callback.answer()
     uid    = callback.from_user.id
     aktif  = await db.get_notif_status(uid)
-    icon   = "🔔 Aktif" if aktif else "🔕 Tidak Aktif"
+    icon   = "🔔 On" if aktif else "🔕 Off"
 
     await callback.message.edit_text(
-        "🔕 *URUS PEMBERITAHUAN*\n"
+        "🔔 *Notification*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"Status semasa: *{icon}*\n\n"
-        "Pemberitahuan dihantar apabila mesej promosi berjaya dihantar.",
+        f"Current status: *{icon}*\n\n"
+        "You'll get notified every time your promo message gets sent.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔔 Hidupkan", callback_data="notif_on"),
-                InlineKeyboardButton(text="🔕 Matikan",  callback_data="notif_off"),
+                InlineKeyboardButton(text="🔔 Turn On",  callback_data="notif_on"),
+                InlineKeyboardButton(text="🔕 Turn Off", callback_data="notif_off"),
             ],
-            [InlineKeyboardButton(text="🔙 Kembali", callback_data="main_menu")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")],
         ]),
     )
 
@@ -53,17 +53,17 @@ async def cb_notif_on(callback: CallbackQuery):
     uid = callback.from_user.id
     await db.set_notif_status(uid, True)
     await callback.message.edit_text(
-        "🔔 *URUS PEMBERITAHUAN*\n"
+        "🔔 *Notification*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Status semasa: *🔔 Aktif*\n\n"
-        "Anda akan menerima pemberitahuan setiap kali mesej promosi dihantar.",
+        "Current status: *🔔 On*\n\n"
+        "Notification ON — you'll get pinged each time a promo goes out.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔔 Hidupkan", callback_data="notif_on"),
-                InlineKeyboardButton(text="🔕 Matikan",  callback_data="notif_off"),
+                InlineKeyboardButton(text="🔔 Turn On",  callback_data="notif_on"),
+                InlineKeyboardButton(text="🔕 Turn Off", callback_data="notif_off"),
             ],
-            [InlineKeyboardButton(text="🔙 Kembali", callback_data="main_menu")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")],
         ]),
     )
 
@@ -74,17 +74,17 @@ async def cb_notif_off(callback: CallbackQuery):
     uid = callback.from_user.id
     await db.set_notif_status(uid, False)
     await callback.message.edit_text(
-        "🔕 *URUS PEMBERITAHUAN*\n"
+        "🔕 *Notification*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Status semasa: *🔕 Tidak Aktif*\n\n"
-        "Pemberitahuan telah dimatikan.",
+        "Current status: *🔕 Off*\n\n"
+        "Notification OFF — no more pings for you.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔔 Hidupkan", callback_data="notif_on"),
-                InlineKeyboardButton(text="🔕 Matikan",  callback_data="notif_off"),
+                InlineKeyboardButton(text="🔔 Turn On",  callback_data="notif_on"),
+                InlineKeyboardButton(text="🔕 Turn Off", callback_data="notif_off"),
             ],
-            [InlineKeyboardButton(text="🔙 Kembali", callback_data="main_menu")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")],
         ]),
     )
 
@@ -98,17 +98,17 @@ async def cb_email_menu(callback: CallbackQuery):
     await callback.answer()
     uid   = callback.from_user.id
     email = await db.get_backup_email(uid)
-    emel_display = f"`{email}`" if email else "_Belum ditetapkan_"
+    emel_display = f"`{email}`" if email else "_Not set yet_"
 
     await callback.message.edit_text(
-        "📧 *EMEL SANDARAN*\n"
+        "📩 *Backup Email*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"Emel semasa: {emel_display}\n\n"
-        "Emel ini digunakan untuk menerima token sandaran sekiranya anda kehilangan akses.",
+        f"Current email: {emel_display}\n\n"
+        "This email is used to receive your backup token if you ever lose access.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Tetapkan Emel", callback_data="email_set")],
-            [InlineKeyboardButton(text="🔙 Kembali", callback_data="main_menu")],
+            [InlineKeyboardButton(text="✏️ Set Email", callback_data="email_set")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")],
         ]),
     )
 
@@ -117,12 +117,12 @@ async def cb_email_menu(callback: CallbackQuery):
 async def cb_email_set(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_text(
-        "📧 *Tetapkan Emel Sandaran*\n\n"
-        "Hantar alamat emel anda:\n"
-        "Contoh: `nama@email.com`",
+        "📩 *Set Backup Email*\n\n"
+        "Send your email address:\n"
+        "e.g. `nama@email.com`",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Batal", callback_data="email_menu")]
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="email_menu")]
         ]),
     )
     await state.set_state(SettingsExtraFSM.waiting_email)
@@ -136,10 +136,10 @@ async def process_email(message: Message, state: FSMContext):
 
     if not EMAIL_REGEX.match(email):
         await message.answer(
-            "⚠️ Format emel tidak sah.\n\nContoh: `nama@email.com`\n\nSila hantar semula:",
+            "⚠️ Invalid email format.\n\ne.g. `nama@email.com`\n\nTry again:",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="❌ Batal", callback_data="email_menu")]
+                [InlineKeyboardButton(text="❌ Cancel", callback_data="email_menu")]
             ]),
         )
         await state.set_state(SettingsExtraFSM.waiting_email)
@@ -148,16 +148,16 @@ async def process_email(message: Message, state: FSMContext):
     ok = await db.set_backup_email(uid, email)
     if ok:
         await message.answer(
-            f"✅ *Emel sandaran berjaya disimpan!*\n\n📧 `{email}`",
+            f"✅ *Backup email saved!*\n\n📩 `{email}`",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Menu Utama", callback_data="main_menu")]
+                [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")]
             ]),
         )
     else:
         await message.answer(
-            "❌ Gagal menyimpan emel. Pastikan anda sudah mempunyai akaun yang disambungkan.",
+            "❌ Failed to save email. Make sure your account is connected first.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Kembali", callback_data="email_menu")]
+                [InlineKeyboardButton(text="⬅️ Back", callback_data="email_menu")]
             ]),
         )
