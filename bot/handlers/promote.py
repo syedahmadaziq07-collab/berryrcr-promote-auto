@@ -27,7 +27,7 @@ async def _do_start_promote(uid: int, send_fn):
         return
 
     settings = await db.get_promo_settings(uid)
-    if not settings or not settings.get("message_text"):
+    if not settings or not (settings.get("message") or settings.get("message_text")):
         await send_fn(
             "⚠️ *Sila tetapkan mesej promosi dahulu melalui 📝 Tetapkan Mesej!*",
             parse_mode="Markdown",

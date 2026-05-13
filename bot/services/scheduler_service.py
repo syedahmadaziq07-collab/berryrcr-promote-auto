@@ -80,7 +80,7 @@ async def _run_promo(user_id: int):
                 return
 
         plan         = COIN_PLANS.get(sub["plan"], {})
-        message_text = settings.get("message_text", "")
+        message_text = settings.get("message") or settings.get("message_text", "")
 
         # ── Semak mod lanjutan ──
         expert_on  = await db.get_expert_mode(user_id)

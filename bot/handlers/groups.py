@@ -40,7 +40,7 @@ def _groups_manage_kb() -> InlineKeyboardMarkup:
 def _remove_group_list_kb(groups: list) -> InlineKeyboardMarkup:
     buttons = []
     for g in groups:
-        title = (g.get("group_title") or "Tanpa nama")[:28]
+        title = (g.get("group_name") or g.get("group_title") or "Tanpa nama")[:28]
         buttons.append([
             InlineKeyboardButton(
                 text=f"✂️ {title}",
@@ -112,7 +112,7 @@ async def cb_view_groups(callback: CallbackQuery):
 
     lines = []
     for i, g in enumerate(groups, 1):
-        title = g.get("group_title") or "Tanpa nama"
+        title = g.get("group_name") or g.get("group_title") or "Tanpa nama"
         lines.append(f"{i}. {title}")
 
     text = (
@@ -251,7 +251,7 @@ async def cb_rm_grp_ask(callback: CallbackQuery):
         await callback.answer("⚠️ Kumpulan tidak dijumpai.", show_alert=True)
         return
 
-    title = group.get("group_title") or "Tanpa nama"
+    title = group.get("group_name") or group.get("group_title") or "Tanpa nama"
     await callback.message.edit_text(
         f"✂️ *Buang Kumpulan?*\n\n"
         f"Adakah anda pasti mahu membuang:\n"

@@ -74,7 +74,7 @@ async def cb_set_message(callback: CallbackQuery, state: FSMContext):
     # Jawab SEBELUM DB call seterusnya
     await callback.answer()
     settings = await db.get_promo_settings(uid)
-    current  = settings.get("message_text") if settings else None
+    current  = (settings.get("message") or settings.get("message_text")) if settings else None
     preview  = f"```\n{current}\n```" if current else "_Tiada mesej ditetapkan_"
 
     await callback.message.edit_text(

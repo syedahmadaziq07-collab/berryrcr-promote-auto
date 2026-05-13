@@ -38,7 +38,7 @@ def _pick_group_kb(groups: list, group_msgs: dict) -> InlineKeyboardMarkup:
     buttons = []
     for g in groups:
         gid   = g["group_id"]
-        title = (g.get("group_title") or "Tanpa nama")[:25]
+        title = (g.get("group_name") or g.get("group_title") or "Tanpa nama")[:25]
         has   = "✅ " if gid in group_msgs else "◻️ "
         buttons.append([
             InlineKeyboardButton(text=f"{has}{title}", callback_data=f"expert_pick_{gid}")
@@ -143,7 +143,7 @@ async def cb_expert_pick_group(callback: CallbackQuery, state: FSMContext):
 
     groups = await db.get_selected_groups(uid)
     group  = next((g for g in groups if g["group_id"] == group_id), None)
-    title  = group.get("group_title", group_id) if group else group_id
+    title  = (group.get("group_name") or group.get("group_title") or group_id) if group else group_id
 
     existing = await db.get_group_message(uid, group_id)
     preview  = f"\n\nMesej semasa:\n```{existing[:100]}```" if existing else ""
@@ -220,7 +220,7 @@ async def cb_expert_view_msgs(callback: CallbackQuery):
     group_msgs = await db.get_all_group_messages(uid)
     groups     = await db.get_selected_groups(uid)
 
-    group_map = {g["group_id"]: g.get("group_title", g["group_id"]) for g in groups}
+    group_map = {g["group_id"]: (g.get("group_name") or g.get("group_title") or g["group_id"]) for g in groups}
 
     if not group_msgs:
         text = "👁️ *Mesej Kumpulan (Mod Lanjutan)*\n\n_Tiada mesej khusus ditetapkan._"

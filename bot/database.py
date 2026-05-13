@@ -533,8 +533,7 @@ async def save_selected_groups(user_id: int, groups: list):
             {
                 "user_id": user_id,
                 "group_id": str(g["id"]),
-                "group_title": g["title"],
-                "group_username": g.get("username"),
+                "group_name": g.get("title") or g.get("group_name") or "",
             }
             for g in groups
         ]
@@ -547,8 +546,7 @@ async def save_selected_groups(user_id: int, groups: list):
                     {
                         "user_id": user_id,
                         "group_id": b["group_id"],
-                        "group_title": b.get("group_title"),
-                        "group_username": b.get("group_username"),
+                        "group_name": b.get("group_name") or "",
                     }
                     for b in backup
                 ]
@@ -573,7 +571,7 @@ async def get_promo_settings(user_id: int):
 async def update_promo_message(user_id: int, message_text: str):
     client = await get_client()
     await client.table("promo_settings").upsert(
-        {"user_id": user_id, "message_text": message_text},
+        {"user_id": user_id, "message": message_text},
         on_conflict="user_id",
     ).execute()
 
@@ -672,8 +670,8 @@ async def get_all_sessions() -> list:
     client = await get_client()
     res = (
         await client.table("sessions")
-        .select("user_id, phone_number, created_at")
-        .order("created_at", desc=True)
+        .select("user_id, phone_number, connected_at")
+        .order("connected_at", desc=True)
         .execute()
     )
     return res.data or []
@@ -916,14 +914,13 @@ async def clear_all_groups(user_id: int) -> int:
 async def add_single_group(user_id: int, group_id: str, group_title: str, group_username: str = None) -> bool:
     try:
         client = await get_client()
-        existing = await client.table("selected_groups").select("id").eq("user_id", user_id).eq("group_id", group_id).execute()
+        existing = await client.table("selected_groups").select("group_id").eq("user_id", user_id).eq("group_id", group_id).execute()
         if existing.data:
             return False
         await client.table("selected_groups").insert({
             "user_id": user_id,
             "group_id": group_id,
-            "group_title": group_title,
-            "group_username": group_username,
+            "group_name": group_title or "",
         }).execute()
         return True
     except Exception as e:
