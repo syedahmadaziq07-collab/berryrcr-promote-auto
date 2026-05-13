@@ -57,9 +57,8 @@ COIN_PLANS = {
 COIN_TOPUP_PACKAGES = [
     {"coins": 300,  "price_rm": 3.0,  "label": "300 Syiling — RM3"},
     {"coins": 600,  "price_rm": 6.0,  "label": "600 Syiling — RM6"},
-    {"coins": 900,  "price_rm": 9.0,  "label": "900 Syiling — RM9"},
-    {"coins": 1200, "price_rm": 12.0, "label": "1,200 Syiling — RM12"},
-    {"coins": 3000, "price_rm": 30.0, "label": "3,000 Syiling — RM30"},
+    {"coins": 900,  "price_rm": 8.0,  "label": "900 Syiling — RM8"},
+    {"coins": 1200, "price_rm": 11.0, "label": "1,200 Syiling — RM11"},
 ]
 
 # Bayaran pendaftaran userbot (disatukan dalam harga pelan)

@@ -56,9 +56,10 @@ Anda perlu beli userbot dahulu, kemudian aktifkan pelan.
 
 ━━━━━━━━━━━━━━━
 *Harga Syiling:*
-• 300 Syiling = RM3.00
-• 600 Syiling = RM6.00
-• 1,200 Syiling = RM12.00
+• 300 Syiling = RM3
+• 600 Syiling = RM6
+• 900 Syiling = RM8
+• 1,200 Syiling = RM11
 
 ━━━━━━━━━━━━━━━
 ⚠️ *Risiko Auto-Promote:*
