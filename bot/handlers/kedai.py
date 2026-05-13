@@ -91,11 +91,19 @@ async def _kedai_text(uid: int) -> str:
         plan = "Tiada"
 
     return (
-        "🛒 *Kedai*\n"
+        "🛒 *Shop Zone*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"🪙 Baki Syiling: *{balance:,} Syiling*\n"
-        f"🤖 ID Userbot: {ub_display}\n"
-        f"📋 Pelan Aktif: *{plan}*"
+        f"🪙 Coin Balance:\n*{balance:,} Syiling*\n\n"
+        f"🤖 Your Userbot ID:\n{ub_display}\n\n"
+        f"📦 Active Plan:\n*{plan}*\n\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        "⚡ Semua purchase & manage system korang dekat sini.\n\n"
+        "Boleh:\n"
+        "• Reload syiling\n"
+        "• Buy/Gift Userbot\n"
+        "• Send syiling\n"
+        "• Check leaderboard\n\n"
+        "━━━━━━━━━━━━━━━"
     )
 
 
@@ -110,7 +118,7 @@ async def _kedai_text(uid: int) -> str:
 async def cancel_kedai_fsm(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        "🏠 *Menu Utama*\n\nSila pilih tindakan:",
+        "🏠 *Home*\n\nPilih menu korang 👇",
         parse_mode="Markdown",
         reply_markup=main_menu_kb(),
     )
@@ -120,7 +128,7 @@ async def cancel_kedai_fsm(message: Message, state: FSMContext):
 async def msg_kembali(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        "🏠 *Menu Utama*\n\nSila pilih tindakan:",
+        "🏠 *Home*\n\nPilih menu korang 👇",
         parse_mode="Markdown",
         reply_markup=main_menu_kb(),
     )
@@ -139,7 +147,7 @@ async def msg_kedai(message: Message, state: FSMContext):
         await message.answer(text, parse_mode="Markdown", reply_markup=kedai_menu_kb())
     except Exception as e:
         logger.error("msg_kedai error uid=%s: %s", uid, e)
-        await message.answer("⚠️ Sistem bermasalah. Sila cuba lagi.", reply_markup=main_menu_kb())
+        await message.answer("⚠️ Something went wrong. Try again.", reply_markup=main_menu_kb())
 
 
 # ─────────────────────────────────────────────
@@ -152,7 +160,7 @@ async def msg_leaderboard(message: Message):
 
     if not leaders:
         await message.answer(
-            "🏆 *Papan Pendahulu*\n\nBelum ada data lagi.",
+            "🏆 *Leaderboard*\n\nNo data yet. Be the first! 💪",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -167,7 +175,7 @@ async def msg_leaderboard(message: Message):
         name    = user["full_name"] if user else str(user_id)
         lines.append(f"{medals[i]} {i + 1}. {name} — *{total:,} syiling*")
 
-    text = "🏆 *Papan Pendahulu*\n━━━━━━━━━━━━━━━\n\n" + "\n".join(lines)
+    text = "🏆 *Leaderboard*\n━━━━━━━━━━━━━━━\n\n" + "\n".join(lines)
     await message.answer(text, parse_mode="Markdown", reply_markup=kedai_menu_kb())
 
 
@@ -195,10 +203,10 @@ async def msg_topup(message: Message, state: FSMContext):
     except Exception:
         balance = 0
     text = (
-        "💳 *Topup Syiling*\n"
+        "💳 *Reload Syiling*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"Baki semasa: *{balance:,} Syiling*\n\n"
-        "Pilih pakej topup:"
+        f"Current balance: *{balance:,} Syiling*\n\n"
+        "Pick your reload package:"
     )
     await message.answer(text, parse_mode="Markdown", reply_markup=topup_packages_inline_kb())
 
@@ -228,13 +236,13 @@ async def cb_topup_pkg(callback: CallbackQuery, state: FSMContext):
     await state.update_data(coins=coins, amount=amount)
 
     text = (
-        "🧾 *RINGKASAN PESANAN*\n"
+        "🧾 *Order Summary*\n"
         "━━━━━━━━━━━━━━━\n"
-        f"- Produk   : Topup Syiling\n"
-        f"- Pakej    : {coins:,} Syiling\n"
-        f"- Harga    : RM{amount:.2f}\n"
-        f"- Jumlah   : RM{amount:.2f}\n\n"
-        "Sila teruskan ke pembayaran."
+        f"- Item     : Coin Reload\n"
+        f"- Package  : {coins:,} Syiling\n"
+        f"- Price    : RM{amount:.2f}\n"
+        f"- Total    : RM{amount:.2f}\n\n"
+        "Proceed to payment?"
     )
     try:
         await callback.message.edit_text(
@@ -296,12 +304,12 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
     await state.update_data(order_id=order_id, coins=coins, amount=amount)
 
     caption = (
-        "💳 *BUTIRAN PEMBAYARAN*\n"
+        "💳 *Payment Details*\n"
         "━━━━━━━━━━━━━━━\n"
-        f"ID Pesanan : `{order_id}`\n"
-        f"Jumlah     : RM{amount:.2f}\n\n"
-        "Imbas QR untuk bayar 👇\n\n"
-        "Selepas bayar, tekan butang di bawah:"
+        f"Order ID : `{order_id}`\n"
+        f"Amount   : RM{amount:.2f}\n\n"
+        "Scan QR untuk bayar 👇\n\n"
+        "Lepas bayar, tekan button bawah:"
     )
 
     try:
@@ -354,12 +362,12 @@ async def cb_topup_paid(callback: CallbackQuery, state: FSMContext):
 
     try:
         await callback.message.edit_caption(
-            caption="📎 Sila hantar screenshot resit pembayaran anda.",
+            caption="📎 Upload screenshot resit pembayaran korang.",
             reply_markup=None,
         )
     except Exception:
         try:
-            await callback.message.answer("📎 Sila hantar screenshot resit pembayaran anda.")
+            await callback.message.answer("📎 Upload screenshot resit pembayaran korang.")
         except Exception as e:
             logger.error("topup_paid answer error: %s", e)
 
@@ -388,9 +396,9 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
 
     await message.answer(
-        f"✅ Resit diterima! Pesanan anda sedang disemak oleh admin.\n"
-        f"ID Pesanan: `{order_id}`\n\n"
-        "Anda akan dimaklumkan setelah topup diluluskan.",
+        f"✅ Resit diterima! Admin tengah semak pesanan korang.\n"
+        f"Order ID: `{order_id}`\n\n"
+        "You'll be notified once topup is approved. 🙌",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
@@ -400,13 +408,13 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
     try:
         uname_display = f"@{username}" if message.from_user.username else str(uid)
         caption = (
-            "🔔 *TOPUP REQUEST BARU*\n"
+            "🔔 *NEW TOPUP REQUEST*\n"
             "━━━━━━━━━━━━━━━\n"
-            f"👤 Username : {uname_display}\n"
-            f"🆔 User ID  : `{uid}`\n"
-            f"📋 ID Pesanan : `{order_id}`\n"
-            f"💰 Amount   : RM{amount:.2f}\n"
-            f"🪙 Syiling  : {coins:,}"
+            f"👤 Username  : {uname_display}\n"
+            f"🆔 User ID   : `{uid}`\n"
+            f"📋 Order ID  : `{order_id}`\n"
+            f"💰 Amount    : RM{amount:.2f}\n"
+            f"🪙 Coins     : {coins:,}"
         )
         await bot.send_photo(
             ADMIN_ID,
@@ -422,8 +430,8 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
 @router.message(TopupFSM.waiting_receipt)
 async def process_topup_receipt_invalid(message: Message):
     await message.answer(
-        "⚠️ Sila *upload gambar resit* pembayaran anda.\n\n"
-        "Hantar screenshot bukti pembayaran sebagai gambar.",
+        "⚠️ *Resit kena upload sebagai gambar.*\n\n"
+        "Send screenshot bukti payment korang.",
         parse_mode="Markdown",
     )
 
@@ -446,7 +454,7 @@ async def cb_topup_cancel(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(text, parse_mode="Markdown", reply_markup=kedai_menu_kb())
     except Exception as e:
         logger.error("topup_cancel kedai_text error uid=%s: %s", uid, e)
-        await callback.message.answer("🛒 Kembali ke Kedai.", reply_markup=kedai_menu_kb())
+        await callback.message.answer("🛒 Back to Shop Zone.", reply_markup=kedai_menu_kb())
 
 
 # ─────────────────────────────────────────────
@@ -464,13 +472,13 @@ async def msg_beli_userbot(message: Message, state: FSMContext):
     if userbot_rec:
         ub_id  = userbot_rec.get("userbot_id", "")
         sub    = await db.get_active_subscription(uid)
-        plan   = sub["plan"] if sub else "Tiada"
+        plan   = sub["plan"] if sub else "None"
         await message.answer(
-            "🤖 *Anda Sudah Mempunyai Userbot*\n\n"
-            f"🆔 ID Userbot: `{ub_id}`\n"
-            f"📋 Pelan Aktif: *{plan}*\n\n"
-            "Setiap akaun hanya boleh mempunyai satu userbot.\n"
-            "Gunakan menu *📚 Buat Userbot* untuk urus userbot anda.",
+            "🤖 *You Already Have a Userbot*\n\n"
+            f"🆔 Userbot ID: `{ub_id}`\n"
+            f"📦 Active Plan: *{plan}*\n\n"
+            "One account, one userbot je.\n"
+            "Guna menu *📚 Buat Userbot* untuk manage userbot korang.",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -478,22 +486,22 @@ async def msg_beli_userbot(message: Message, state: FSMContext):
 
     balance = await db.get_wallet(uid)
     text = (
-        "🛍 *Beli Userbot*\n"
+        "🛍 *Buy Userbot*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"💰 Baki anda: *{balance:,} Syiling*\n\n"
-        "Pilih pelan yang sesuai:\n\n"
+        f"💰 Your balance: *{balance:,} Syiling*\n\n"
+        "Pick a plan:\n\n"
         "⭐ *PLUS — 300 Syiling (RM3)*\n"
-        "• Auto promote ke kumpulan pilihan\n"
+        "• Auto promote group pilihan\n"
         "• Footer wajib @berryrcr\n\n"
         "🔥 *PRO — 600 Syiling (RM6)*\n"
-        "• Auto promote ke kumpulan pilihan\n"
-        "• Boleh tutup footer\n"
-        "• Keutamaan sokongan\n\n"
+        "• Auto promote group pilihan\n"
+        "• Footer boleh off\n"
+        "• Priority support\n\n"
         "💎 *PREMIUM — 1,000 Syiling (RM10)*\n"
-        "• Auto promote ke kumpulan pilihan\n"
-        "• Boleh tutup footer\n"
-        "• Sokongan VIP 24/7\n"
-        "• Keutamaan tertinggi"
+        "• Auto promote group pilihan\n"
+        "• Footer boleh off\n"
+        "• VIP support 24/7\n"
+        "• Highest priority"
     )
     await message.answer(text, parse_mode="Markdown", reply_markup=beli_userbot_plans_kb())
 
@@ -523,21 +531,21 @@ async def cb_buy_plan_select(callback: CallbackQuery):
 
     features_txt = "\n".join(f"  • {f}" for f in plan["features"])
     text = (
-        f"📋 *Sahkan Pembelian Userbot + Pelan*\n"
+        f"📋 *Confirm Purchase*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"Pelan: *{plan['name']}*\n"
-        f"Harga: *{total:,} Syiling* (RM{plan['price_rm']:.2f})\n\n"
-        f"*Ciri-ciri:*\n{features_txt}\n\n"
+        f"Plan: *{plan['name']}*\n"
+        f"Price: *{total:,} Syiling* (RM{plan['price_rm']:.2f})\n\n"
+        f"*Features:*\n{features_txt}\n\n"
         "━━━━━━━━━━━━━━━\n"
-        f"💰 Baki semasa: *{balance:,} Syiling*\n"
-        f"💸 Kos: *{total:,} Syiling*\n"
-        f"{cukup_icon} Baki selepas: *{baki_selepas:,} Syiling*\n\n"
+        f"💰 Current balance: *{balance:,} Syiling*\n"
+        f"💸 Cost: *{total:,} Syiling*\n"
+        f"{cukup_icon} Balance after: *{baki_selepas:,} Syiling*\n\n"
     )
     if balance < total:
         text += (
-            "⚠️ *Baki tidak mencukupi!*\n"
-            f"Perlu tambah lagi *{total - balance:,} Syiling*.\n"
-            "Topup melalui 💳 Topup Syiling."
+            "⚠️ *Baki tak cukup!*\n"
+            f"Need top up lagi *{total - balance:,} Syiling*.\n"
+            "Reload via 💳 Topup Syiling."
         )
         await callback.message.edit_text(
             text, parse_mode="Markdown",
@@ -545,7 +553,7 @@ async def cb_buy_plan_select(callback: CallbackQuery):
         )
         return
 
-    text += "Tekan *Ya, Beli Sekarang* untuk teruskan."
+    text += "Tekan *Yes, Buy Now* untuk teruskan."
     await callback.message.edit_text(
         text, parse_mode="Markdown",
         reply_markup=beli_userbot_confirm_kb(plan_key),
@@ -591,10 +599,10 @@ async def cb_buy_plan_confirm(callback: CallbackQuery):
         balance = await db.get_wallet(uid)
         logger.warning("buy_plan_confirm: uid=%s baki tidak cukup — ada %d perlu %d", uid, balance, total)
         await callback.message.edit_text(
-            f"⚠️ *Baki tidak mencukupi!*\n\n"
-            f"Perlu: *{total:,} Syiling*\n"
-            f"Baki: *{balance:,} Syiling*\n\n"
-            "Topup dahulu melalui 💳 Topup Syiling.",
+            f"⚠️ *Baki tak cukup!*\n\n"
+            f"Need: *{total:,} Syiling*\n"
+            f"Balance: *{balance:,} Syiling*\n\n"
+            "Reload dulu via 💳 Topup Syiling.",
             parse_mode="Markdown",
             reply_markup=None,
         )
@@ -628,23 +636,23 @@ async def cb_buy_plan_confirm(callback: CallbackQuery):
     logger.info("buy_plan_confirm: uid=%s BERJAYA — userbot_id=%s plan=%s", uid, userbot_id, plan_key)
 
     await callback.message.edit_text(
-        "✅ *Pembelian Berjaya!*\n"
+        "✅ *Purchase Successful!*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"🤖 ID Userbot anda:\n`{userbot_id}`\n\n"
-        f"📋 Pelan Aktif: *{plan['name']}*\n\n"
-        "⚠️ *Simpan ID Userbot ini!*\n"
-        "ID ini digunakan untuk pindah userbot jika akaun anda limit/banned.\n\n"
+        f"🤖 Your Userbot ID:\n`{userbot_id}`\n\n"
+        f"📦 Active Plan: *{plan['name']}*\n\n"
+        "⚠️ *Save your Userbot ID!*\n"
+        "ID ni guna untuk pindah userbot kalau account korang limit/banned.\n\n"
         "━━━━━━━━━━━━━━━\n"
-        "Langkah seterusnya:\n"
-        "1️⃣ Tekan *📚 Buat Userbot* untuk sambung akaun Telegram\n"
-        "2️⃣ Pilih kumpulan & tetapkan mesej dalam *⚙️ Tetapan*\n"
-        "3️⃣ Tekan 🚀 Mula Promote!",
+        "Next steps:\n"
+        "1️⃣ Tekan *📚 Buat Userbot* untuk connect Telegram account\n"
+        "2️⃣ Setup group & message dekat *⚙️ Tetapan*\n"
+        "3️⃣ Hit 🚀 Start Promote!",
         parse_mode="Markdown",
         reply_markup=None,
     )
     # Hantar keyboard reply semula
     await callback.message.answer(
-        "🛒 Kembali ke Kedai:",
+        "⚡ You're back at Shop Zone:",
         reply_markup=kedai_menu_kb(),
     )
 
@@ -672,22 +680,22 @@ async def cb_beli_userbot_back(callback: CallbackQuery):
     balance = await db.get_wallet(uid)
     logger.info("beli_userbot_back: uid=%s kembali ke senarai pelan", uid)
     text = (
-        "🛍 *Beli Userbot*\n"
+        "🛍 *Buy Userbot*\n"
         "━━━━━━━━━━━━━━━\n\n"
-        f"💰 Baki anda: *{balance:,} Syiling*\n\n"
-        "Pilih pelan yang sesuai:\n\n"
+        f"💰 Your balance: *{balance:,} Syiling*\n\n"
+        "Pick a plan:\n\n"
         "⭐ *PLUS — 300 Syiling (RM3)*\n"
-        "• Auto promote ke kumpulan pilihan\n"
+        "• Auto promote group pilihan\n"
         "• Footer wajib @berryrcr\n\n"
         "🔥 *PRO — 600 Syiling (RM6)*\n"
-        "• Auto promote ke kumpulan pilihan\n"
-        "• Boleh tutup footer\n"
-        "• Keutamaan sokongan\n\n"
+        "• Auto promote group pilihan\n"
+        "• Footer boleh off\n"
+        "• Priority support\n\n"
         "💎 *PREMIUM — 1,000 Syiling (RM10)*\n"
-        "• Auto promote ke kumpulan pilihan\n"
-        "• Boleh tutup footer\n"
-        "• Sokongan VIP 24/7\n"
-        "• Keutamaan tertinggi"
+        "• Auto promote group pilihan\n"
+        "• Footer boleh off\n"
+        "• VIP support 24/7\n"
+        "• Highest priority"
     )
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=beli_userbot_plans_kb())
 
@@ -704,17 +712,17 @@ async def msg_hantar_syiling(message: Message, state: FSMContext):
 
     if balance == 0:
         await message.answer(
-            "⚠️ Baki syiling anda kosong!\n\nTopup dahulu melalui 💳 Topup Syiling.",
+            "⚠️ Coin balance korang kosong!\n\nReload dulu via 💳 Topup Syiling.",
             reply_markup=kedai_menu_kb(),
         )
         return
 
     await message.answer(
-        "📤 *Hantar Syiling*\n\n"
-        f"Baki anda: *{balance:,} Syiling*\n\n"
-        "Sila masukkan *ID Telegram* penerima:\n"
-        "_(Penerima mesti pernah guna bot ini)_\n\n"
-        "_Tekan 🏠 Laman Utama untuk batal._",
+        "📤 *Send Syiling*\n\n"
+        f"Your balance: *{balance:,} Syiling*\n\n"
+        "Enter *Telegram ID* of the receiver:\n"
+        "_(Receiver mesti pernah guna bot ni)_\n\n"
+        "_Press 🏠 Laman Utama to cancel._",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
@@ -727,9 +735,9 @@ async def process_send_target(message: Message, state: FSMContext):
 
     if not text.isdigit():
         await message.answer(
-            "⚠️ Sila masukkan ID Telegram yang sah (nombor sahaja).\n"
-            "Contoh: `123456789`\n\n"
-            "_Tekan 🏠 Laman Utama untuk batal._",
+            "⚠️ Masukkan Telegram ID yang valid (nombor je).\n"
+            "e.g. `123456789`\n\n"
+            "_Press 🏠 Laman Utama to cancel._",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -738,7 +746,7 @@ async def process_send_target(message: Message, state: FSMContext):
     target_id = int(text)
     if target_id == message.from_user.id:
         await message.answer(
-            "⚠️ Anda tidak boleh hantar syiling kepada diri sendiri.",
+            "⚠️ Tak boleh send dekat diri sendiri lah.",
             reply_markup=kedai_menu_kb(),
         )
         return
@@ -746,7 +754,7 @@ async def process_send_target(message: Message, state: FSMContext):
     target = await db.get_user_by_id(target_id)
     if not target:
         await message.answer(
-            "⚠️ Pengguna tidak ditemui. Pastikan penerima pernah guna bot ini.",
+            "⚠️ User not found. Make sure penerima pernah guna bot ni.",
             reply_markup=kedai_menu_kb(),
         )
         return
@@ -754,9 +762,9 @@ async def process_send_target(message: Message, state: FSMContext):
     await state.update_data(target_id=target_id, target_name=target["full_name"])
     await state.set_state(SendCoinsFSM.waiting_amount)
     await message.answer(
-        f"✅ Penerima: *{target['full_name']}* (`{target_id}`)\n\n"
-        "Sila masukkan *jumlah syiling* yang ingin dihantar:\n\n"
-        "_Tekan 🏠 Laman Utama untuk batal._",
+        f"✅ Receiver: *{target['full_name']}* (`{target_id}`)\n\n"
+        "Enter *amount* to send:\n\n"
+        "_Press 🏠 Laman Utama to cancel._",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
@@ -767,7 +775,7 @@ async def process_send_amount(message: Message, state: FSMContext):
     text = message.text.strip() if message.text else ""
     if not text.isdigit() or int(text) <= 0:
         await message.answer(
-            "⚠️ Sila masukkan jumlah yang sah (nombor positif):",
+            "⚠️ Invalid amount — nombor positif je.",
             reply_markup=kedai_menu_kb(),
         )
         return
@@ -778,7 +786,7 @@ async def process_send_amount(message: Message, state: FSMContext):
 
     if amount > balance:
         await message.answer(
-            f"⚠️ Baki tidak mencukupi!\n\nBaki anda: *{balance:,} Syiling*",
+            f"⚠️ Baki tak cukup!\n\nBalance korang: *{balance:,} Syiling*",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -793,15 +801,15 @@ async def process_send_amount(message: Message, state: FSMContext):
 
     if ok:
         await message.answer(
-            f"✅ *{amount:,} Syiling berjaya dihantar!*\n\n"
-            f"Penerima: *{target_name}* (`{target_id}`)\n"
-            f"Baki anda sekarang: *{balance - amount:,} Syiling*",
+            f"✅ *{amount:,} Syiling sent!*\n\n"
+            f"To: *{target_name}* (`{target_id}`)\n"
+            f"Balance korang: *{balance - amount:,} Syiling*",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
     else:
         await message.answer(
-            "❌ Gagal hantar syiling. Sila cuba lagi.",
+            "❌ Failed to send. Try again.",
             reply_markup=kedai_menu_kb(),
         )
 
@@ -819,18 +827,18 @@ async def msg_gift_userbot(message: Message, state: FSMContext):
 
     if not ub_id:
         await message.answer(
-            "⚠️ Anda tiada userbot untuk dihadiahkan!\n\n"
-            "Beli userbot dahulu melalui 🛍 Beli Userbot.",
+            "⚠️ Korang takde userbot lagi!\n\n"
+            "Buy userbot dulu via 🛍 Beli Userbot.",
             reply_markup=kedai_menu_kb(),
         )
         return
 
     await message.answer(
         "🎁 *Gift Userbot*\n\n"
-        f"ID Userbot anda: `{ub_id}`\n\n"
-        "Sila masukkan *ID Telegram* penerima:\n"
-        "_(Penerima mesti pernah guna bot ini)_\n\n"
-        "_Tekan 🏠 Laman Utama untuk batal._",
+        f"Your Userbot ID: `{ub_id}`\n\n"
+        "Enter *Telegram ID* of the receiver:\n"
+        "_(Receiver mesti pernah guna bot ni)_\n\n"
+        "_Press 🏠 Laman Utama to cancel._",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
@@ -842,8 +850,8 @@ async def process_gift_target(message: Message, state: FSMContext):
     text = message.text.strip() if message.text else ""
     if not text.isdigit():
         await message.answer(
-            "⚠️ Sila masukkan ID Telegram yang sah (nombor sahaja).\n\n"
-            "_Tekan 🏠 Laman Utama untuk batal._",
+            "⚠️ Masukkan Telegram ID yang valid (nombor je).\n\n"
+            "_Press 🏠 Laman Utama to cancel._",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -854,7 +862,7 @@ async def process_gift_target(message: Message, state: FSMContext):
 
     if target_id == uid:
         await message.answer(
-            "⚠️ Anda tidak boleh hadiahkan userbot kepada diri sendiri.",
+            "⚠️ Tak boleh gift dekat diri sendiri lah.",
             reply_markup=kedai_menu_kb(),
         )
         return
@@ -862,7 +870,7 @@ async def process_gift_target(message: Message, state: FSMContext):
     target = await db.get_user_by_id(target_id)
     if not target:
         await message.answer(
-            "⚠️ Pengguna tidak ditemui. Pastikan penerima pernah guna bot ini.",
+            "⚠️ User not found. Make sure penerima pernah guna bot ni.",
             reply_markup=kedai_menu_kb(),
         )
         return
@@ -870,7 +878,7 @@ async def process_gift_target(message: Message, state: FSMContext):
     target_ub = await db.get_userbot(target_id)  # canonical check
     if target_ub:
         await message.answer(
-            f"⚠️ Penerima *{target['full_name']}* sudah mempunyai userbot.",
+            f"⚠️ *{target['full_name']}* dah ada userbot sendiri.",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -884,10 +892,10 @@ async def process_gift_target(message: Message, state: FSMContext):
     await state.clear()
 
     await message.answer(
-        f"🎁 *Userbot Berjaya Dihadiahkan!*\n\n"
-        f"🆔 ID Userbot: `{ub_id}`\n"
-        f"Pemilik baharu: *{target['full_name']}* (`{target_id}`)\n\n"
-        "Userbot anda telah dipindahkan.",
+        f"🎁 *Userbot Successfully Gifted!*\n\n"
+        f"🆔 Userbot ID: `{ub_id}`\n"
+        f"New owner: *{target['full_name']}* (`{target_id}`)\n\n"
+        "Userbot korang dah dipindahkan. 🙌",
         parse_mode="Markdown",
         reply_markup=kedai_menu_kb(),
     )
@@ -901,7 +909,7 @@ async def process_gift_target(message: Message, state: FSMContext):
 async def msg_laman_utama(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        "🏠 *Menu Utama*\n\nSila pilih tindakan:",
+        "🏠 *Home*\n\nPilih menu korang 👇",
         parse_mode="Markdown",
         reply_markup=main_menu_kb(),
     )
