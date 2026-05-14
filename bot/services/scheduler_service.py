@@ -7,7 +7,11 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.types import InputPeerChannel, InputPeerChat
+from telethon.tl.types import (
+    InputPeerChannel, InputPeerChat,
+    PeerChannel, PeerChat,
+    User, InputPeerUser,
+)
 from telethon.errors import (
     FloodWaitError, ChatWriteForbiddenError, UserBannedInChannelError,
     ChannelPrivateError, ChatAdminRequiredError, SlowModeWaitError,
@@ -26,125 +30,178 @@ scheduler = AsyncIOScheduler()
 _bot_instance = None
 
 
-def _to_telethon_id(gid: str, target_type: str) -> int:
+def _to_telethon_id(gid: str) -> int:
     """
-    Tukar group_id (sama ada format Telegram atau Telethon) kepada Telethon internal ID.
+    Tukar group_id kepada Telethon internal channel ID (integer positif).
 
-    Format Telegram (Bot API):  -1001156883698  (supergroup/channel)
-    Format Telethon (internal):  1156883698     (positif, tanpa -100)
-    Format Group biasa:         -123456789      (kekal negatif)
-
-    InputPeerChannel memerlukan Telethon internal ID (positif).
-    InputPeerChat memerlukan ID positif (abs value).
+    Kendalikan kedua-dua format:
+      Telegram Bot API:  -1001156883698  → 1156883698
+      Telethon internal: 1156883698      → 1156883698 (unchanged)
+      Legacy group:      -123456789      → 123456789  (abs)
     """
     raw = str(gid).strip()
     try:
-        # Guna normalizer: kendalikan kedua-dua format
         _, telethon_id = normalize_telegram_id(raw)
-        # Untuk InputPeerChannel/InputPeerChat, pastikan positif
-        if target_type in ("channel", "supergroup"):
-            return abs(telethon_id)
-        elif target_type == "group":
-            return abs(telethon_id)
-        return telethon_id
+        return abs(telethon_id)
     except Exception:
-        # Fallback: parse terus
         raw_int = int(raw)
         if raw_int < 0 and raw.startswith("-100"):
             return int(raw[4:])
         return abs(raw_int)
 
 
+def _sanitize_target_type(raw_gid: str, stored_type: str) -> str:
+    """
+    Pastikan target_type sah. Jika kosong/tidak diketahui, detect dari format ID.
+
+    -100xxxxxxxxxx → supergroup
+    -xxxxxxxxxx    → group
+    xxxxxxxxxx     → supergroup (Telethon internal channel ID)
+    """
+    if stored_type in ("channel", "supergroup", "group"):
+        return stored_type
+
+    raw = str(raw_gid).strip()
+    if raw.startswith("-100"):
+        return "supergroup"
+    if raw.startswith("-"):
+        return "group"
+    # Positif tanpa prefix — Telethon internal channel ID
+    return "supergroup"
+
+
+def _entity_is_user(entity) -> bool:
+    """Return True jika entity yang di-resolve adalah User — ini tidak sah untuk promote target."""
+    return isinstance(entity, (User, InputPeerUser))
+
+
 async def _resolve_peer(client: TelegramClient, gid: str, target_type: str,
                         access_hash: str, username: str, user_id: int, gname: str):
     """
-    Resolve entity untuk Telethon send_message.
+    Resolve entity untuk send_message. Sentiasa kembalikan InputPeerChannel
+    atau InputPeerChat — TIDAK PERNAH PeerUser/InputPeerUser.
 
     Keutamaan:
-      1. @username  — API resolve, paling selamat untuk channel/group
-      2. InputPeerChannel(telethon_id, access_hash) — channel/supergroup
-      3. get_entity(telethon_id) — fallback jika tiada access_hash
-      4. InputPeerChat(telethon_id) — regular group
-      5. Raw int — last resort
+      1. InputPeerChannel(id, access_hash)        — direct, tiada API call
+      2. @username via get_input_entity()          — API resolve username
+      3. get_input_entity(PeerChannel(id))         — explicit PeerChannel wrapper
+      4. get_input_entity(PeerChat(id))            — untuk basic group sahaja
 
-    PENTING: gid boleh dalam format Telegram (-1001156883698) ATAU
-    format Telethon (1156883698). _to_telethon_id() kendalikan kedua-dua.
+    TIDAK ADA raw int fallback — sebab Telethon boleh tafsir
+    int sebagai PeerUser jika ID itu wujud dalam session cache.
     """
     raw_gid = str(gid).strip()
-    telethon_id = _to_telethon_id(raw_gid, target_type)
+    effective_type = _sanitize_target_type(raw_gid, target_type)
+    telethon_id = _to_telethon_id(raw_gid)
 
     logger.info(
-        "[PEER] uid=%s | '%s' | raw_gid=%s → telethon_id=%s | type=%s | username=%s | has_hash=%s",
-        user_id, gname, raw_gid, telethon_id, target_type,
+        "[PEER] uid=%s | '%s' | raw_gid=%s → telethon_id=%s | "
+        "stored_type='%s' → effective_type='%s' | username=%s | has_hash=%s",
+        user_id, gname, raw_gid, telethon_id,
+        target_type, effective_type,
         f"@{username}" if username else "–",
         "ya" if access_hash else "tidak",
     )
 
-    # ── Kaedah 1: @username — paling selamat ──
+    # ── Kaedah 1: InputPeerChannel + access_hash — tiada API call, terus construct ──
+    # Ini paling selamat untuk supergroup/channel yang ada access_hash
+    if access_hash and effective_type in ("channel", "supergroup"):
+        try:
+            peer = InputPeerChannel(channel_id=telethon_id, access_hash=int(access_hash))
+            logger.info(
+                "[PEER] uid=%s | '%s' | ✓ Kaedah 1: InputPeerChannel(id=%s, hash=...)",
+                user_id, gname, telethon_id,
+            )
+            return peer
+        except Exception as e:
+            logger.warning(
+                "[PEER] uid=%s | '%s' | Kaedah 1 gagal: %s(%s) — cuba kaedah 2",
+                user_id, gname, type(e).__name__, e,
+            )
+
+    # ── Kaedah 2: @username via get_input_entity ──
     if username:
         clean = username.lstrip("@").strip()
         if clean:
             try:
-                entity = await client.get_entity(f"@{clean}")
-                logger.info("[PEER] uid=%s | '%s' | ✓ resolved via @%s", user_id, gname, clean)
-                return entity
+                peer = await client.get_input_entity(f"@{clean}")
+                if _entity_is_user(peer):
+                    logger.error(
+                        "[PEER] uid=%s | '%s' | ✗ @%s resolve jadi User — "
+                        "target bukan group/channel, langkau",
+                        user_id, gname, clean,
+                    )
+                    raise ValueError(f"Stored target '@{clean}' is a user, not group/channel")
+                logger.info(
+                    "[PEER] uid=%s | '%s' | ✓ Kaedah 2: get_input_entity(@%s) → %s",
+                    user_id, gname, clean, type(peer).__name__,
+                )
+                return peer
+            except ValueError:
+                raise
             except Exception as e:
                 logger.warning(
-                    "[PEER] uid=%s | '%s' | gagal @%s: %s (%s) — cuba cara lain",
+                    "[PEER] uid=%s | '%s' | Kaedah 2 gagal @%s: %s(%s) — cuba kaedah 3",
                     user_id, gname, clean, type(e).__name__, e,
                 )
 
-    # ── Kaedah 2: InputPeerChannel + access_hash (channel/supergroup) ──
-    if access_hash and target_type in ("channel", "supergroup"):
+    # ── Kaedah 3: get_input_entity(PeerChannel(id)) — explicit, bukan raw int ──
+    if effective_type in ("channel", "supergroup"):
         try:
-            peer = InputPeerChannel(telethon_id, int(access_hash))
+            peer = await client.get_input_entity(PeerChannel(telethon_id))
+            if _entity_is_user(peer):
+                logger.error(
+                    "[PEER] uid=%s | '%s' | ✗ PeerChannel(%s) resolve jadi User — ID salah",
+                    user_id, gname, telethon_id,
+                )
+                raise ValueError(
+                    f"PeerChannel({telethon_id}) resolved as User — "
+                    f"stored group_id '{raw_gid}' mungkin salah atau bukan channel/supergroup"
+                )
             logger.info(
-                "[PEER] uid=%s | '%s' | ✓ resolved via InputPeerChannel(id=%s, hash=%s)",
-                user_id, gname, telethon_id, access_hash,
+                "[PEER] uid=%s | '%s' | ✓ Kaedah 3: get_input_entity(PeerChannel(%s)) → %s",
+                user_id, gname, telethon_id, type(peer).__name__,
             )
             return peer
+        except ValueError:
+            raise
         except Exception as e:
             logger.warning(
-                "[PEER] uid=%s | '%s' | gagal InputPeerChannel(id=%s): %s (%s) — cuba get_entity",
+                "[PEER] uid=%s | '%s' | Kaedah 3 gagal PeerChannel(%s): %s(%s) — cuba kaedah 4",
                 user_id, gname, telethon_id, type(e).__name__, e,
             )
 
-    # ── Kaedah 3: get_entity dengan telethon_id — resolves dari session cache ──
-    if target_type in ("channel", "supergroup"):
+    # ── Kaedah 4: get_input_entity(PeerChat(id)) — untuk basic group sahaja ──
+    if effective_type == "group":
         try:
-            entity = await client.get_entity(telethon_id)
+            peer = await client.get_input_entity(PeerChat(telethon_id))
+            if _entity_is_user(peer):
+                logger.error(
+                    "[PEER] uid=%s | '%s' | ✗ PeerChat(%s) resolve jadi User — ID salah",
+                    user_id, gname, telethon_id,
+                )
+                raise ValueError(
+                    f"PeerChat({telethon_id}) resolved as User — "
+                    f"stored group_id '{raw_gid}' mungkin salah"
+                )
             logger.info(
-                "[PEER] uid=%s | '%s' | ✓ resolved via get_entity(id=%s)",
-                user_id, gname, telethon_id,
-            )
-            return entity
-        except Exception as e:
-            logger.warning(
-                "[PEER] uid=%s | '%s' | gagal get_entity(id=%s): %s (%s) — cuba InputPeerChat",
-                user_id, gname, telethon_id, type(e).__name__, e,
-            )
-
-    # ── Kaedah 4: InputPeerChat (regular group) ──
-    if target_type == "group":
-        try:
-            peer = InputPeerChat(telethon_id)
-            logger.info(
-                "[PEER] uid=%s | '%s' | ✓ resolved via InputPeerChat(id=%s)",
-                user_id, gname, telethon_id,
+                "[PEER] uid=%s | '%s' | ✓ Kaedah 4: get_input_entity(PeerChat(%s)) → %s",
+                user_id, gname, telethon_id, type(peer).__name__,
             )
             return peer
+        except ValueError:
+            raise
         except Exception as e:
             logger.warning(
-                "[PEER] uid=%s | '%s' | gagal InputPeerChat(id=%s): %s (%s)",
+                "[PEER] uid=%s | '%s' | Kaedah 4 gagal PeerChat(%s): %s(%s)",
                 user_id, gname, telethon_id, type(e).__name__, e,
             )
 
-    # ── Kaedah 5: Raw telethon_id — last resort ──
-    logger.warning(
-        "[PEER] uid=%s | '%s' | ⚠ guna raw int id=%s (last resort — mungkin gagal jika tiada dalam session cache)",
-        user_id, gname, telethon_id,
+    # ── Semua kaedah gagal ──
+    raise ValueError(
+        f"Tidak dapat resolve '{gname}' (raw_gid={raw_gid}, type={effective_type}) "
+        f"— pastikan userbot sudah join kumpulan dan Cuba pilih semula kumpulan."
     )
-    return telethon_id
 
 # Rotation index: {user_id: next_message_index}
 _promo_rotation: dict[int, int] = {}
