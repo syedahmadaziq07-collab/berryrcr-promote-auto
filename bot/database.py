@@ -332,9 +332,9 @@ async def create_subscription(user_id: int, plan: str, months: int = 1):
     inserted = False
     for tier_name, tier_record in [("tier1_full", tier1), ("tier2_expires", tier2), ("tier3_minimal", tier3)]:
         try:
-            await client.table("subscriptions").insert(tier_record).execute()
+            await client.table("subscriptions").upsert(tier_record, on_conflict="user_id").execute()
             logger.info(
-                "create_subscription: insert OK (%s) | uid=%s | plan=%s | months=%s | mula=%s | tamat=%s",
+                "create_subscription: upsert OK (%s) | uid=%s | plan=%s | months=%s | mula=%s | tamat=%s",
                 tier_name, user_id, plan, months,
                 base_date.strftime("%Y-%m-%d"),
                 new_expires.strftime("%Y-%m-%d"),
@@ -343,7 +343,7 @@ async def create_subscription(user_id: int, plan: str, months: int = 1):
             break
         except Exception as e:
             logger.warning(
-                "create_subscription: insert %s gagal uid=%s — cuba tier seterusnya: %s",
+                "create_subscription: upsert %s gagal uid=%s — cuba tier seterusnya: %s",
                 tier_name, user_id, e,
             )
 
