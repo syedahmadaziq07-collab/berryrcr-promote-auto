@@ -12,15 +12,47 @@ from telethon.errors import (
     FloodWaitError, ChatWriteForbiddenError, UserBannedInChannelError,
     ChannelPrivateError, ChatAdminRequiredError, SlowModeWaitError,
     AuthKeyUnregisteredError, UserDeactivatedBanError,
+    UserNotParticipantError, PeerIdInvalidError, UsernameInvalidError,
+    UsernameNotOccupiedError, InviteHashInvalidError,
 )
 import database as db
 from config import MANDATORY_FOOTER, MIN_DELAY_MINUTES, API_ID, API_HASH
 from services.email_service import notify_session_error
+from utils.id_normalizer import normalize_telegram_id
 
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
 _bot_instance = None
+
+
+def _to_telethon_id(gid: str, target_type: str) -> int:
+    """
+    Tukar group_id (sama ada format Telegram atau Telethon) kepada Telethon internal ID.
+
+    Format Telegram (Bot API):  -1001156883698  (supergroup/channel)
+    Format Telethon (internal):  1156883698     (positif, tanpa -100)
+    Format Group biasa:         -123456789      (kekal negatif)
+
+    InputPeerChannel memerlukan Telethon internal ID (positif).
+    InputPeerChat memerlukan ID positif (abs value).
+    """
+    raw = str(gid).strip()
+    try:
+        # Guna normalizer: kendalikan kedua-dua format
+        _, telethon_id = normalize_telegram_id(raw)
+        # Untuk InputPeerChannel/InputPeerChat, pastikan positif
+        if target_type in ("channel", "supergroup"):
+            return abs(telethon_id)
+        elif target_type == "group":
+            return abs(telethon_id)
+        return telethon_id
+    except Exception:
+        # Fallback: parse terus
+        raw_int = int(raw)
+        if raw_int < 0 and raw.startswith("-100"):
+            return int(raw[4:])
+        return abs(raw_int)
 
 
 async def _resolve_peer(client: TelegramClient, gid: str, target_type: str,
@@ -30,45 +62,89 @@ async def _resolve_peer(client: TelegramClient, gid: str, target_type: str,
 
     Keutamaan:
       1. @username  — API resolve, paling selamat untuk channel/group
-      2. InputPeerChannel(id, access_hash) — untuk channel/supergroup tanpa username
-      3. InputPeerChat(id) — untuk regular group
-      4. Raw int(gid)  — last resort (gagal jika tiada dalam session cache)
+      2. InputPeerChannel(telethon_id, access_hash) — channel/supergroup
+      3. get_entity(telethon_id) — fallback jika tiada access_hash
+      4. InputPeerChat(telethon_id) — regular group
+      5. Raw int — last resort
+
+    PENTING: gid boleh dalam format Telegram (-1001156883698) ATAU
+    format Telethon (1156883698). _to_telethon_id() kendalikan kedua-dua.
     """
-    # ── Kaedah 1: @username ──
+    raw_gid = str(gid).strip()
+    telethon_id = _to_telethon_id(raw_gid, target_type)
+
+    logger.info(
+        "[PEER] uid=%s | '%s' | raw_gid=%s → telethon_id=%s | type=%s | username=%s | has_hash=%s",
+        user_id, gname, raw_gid, telethon_id, target_type,
+        f"@{username}" if username else "–",
+        "ya" if access_hash else "tidak",
+    )
+
+    # ── Kaedah 1: @username — paling selamat ──
     if username:
         clean = username.lstrip("@").strip()
         if clean:
             try:
                 entity = await client.get_entity(f"@{clean}")
-                logger.info("[PEER] uid=%s | resolved via @%s", user_id, clean)
+                logger.info("[PEER] uid=%s | '%s' | ✓ resolved via @%s", user_id, gname, clean)
                 return entity
             except Exception as e:
-                logger.warning("[PEER] uid=%s | gagal @%s: %s — cuba cara lain", user_id, clean, e)
+                logger.warning(
+                    "[PEER] uid=%s | '%s' | gagal @%s: %s (%s) — cuba cara lain",
+                    user_id, gname, clean, type(e).__name__, e,
+                )
 
     # ── Kaedah 2: InputPeerChannel + access_hash (channel/supergroup) ──
     if access_hash and target_type in ("channel", "supergroup"):
         try:
-            peer = InputPeerChannel(int(gid), int(access_hash))
-            logger.info("[PEER] uid=%s | resolved via InputPeerChannel id=%s", user_id, gid)
+            peer = InputPeerChannel(telethon_id, int(access_hash))
+            logger.info(
+                "[PEER] uid=%s | '%s' | ✓ resolved via InputPeerChannel(id=%s, hash=%s)",
+                user_id, gname, telethon_id, access_hash,
+            )
             return peer
         except Exception as e:
-            logger.warning("[PEER] uid=%s | gagal InputPeerChannel id=%s: %s", user_id, gid, e)
+            logger.warning(
+                "[PEER] uid=%s | '%s' | gagal InputPeerChannel(id=%s): %s (%s) — cuba get_entity",
+                user_id, gname, telethon_id, type(e).__name__, e,
+            )
 
-    # ── Kaedah 3: InputPeerChat (regular group) ──
-    if target_type == "group" and not access_hash:
+    # ── Kaedah 3: get_entity dengan telethon_id — resolves dari session cache ──
+    if target_type in ("channel", "supergroup"):
         try:
-            peer = InputPeerChat(int(gid))
-            logger.info("[PEER] uid=%s | resolved via InputPeerChat id=%s", user_id, gid)
+            entity = await client.get_entity(telethon_id)
+            logger.info(
+                "[PEER] uid=%s | '%s' | ✓ resolved via get_entity(id=%s)",
+                user_id, gname, telethon_id,
+            )
+            return entity
+        except Exception as e:
+            logger.warning(
+                "[PEER] uid=%s | '%s' | gagal get_entity(id=%s): %s (%s) — cuba InputPeerChat",
+                user_id, gname, telethon_id, type(e).__name__, e,
+            )
+
+    # ── Kaedah 4: InputPeerChat (regular group) ──
+    if target_type == "group":
+        try:
+            peer = InputPeerChat(telethon_id)
+            logger.info(
+                "[PEER] uid=%s | '%s' | ✓ resolved via InputPeerChat(id=%s)",
+                user_id, gname, telethon_id,
+            )
             return peer
         except Exception as e:
-            logger.warning("[PEER] uid=%s | gagal InputPeerChat id=%s: %s", user_id, gid, e)
+            logger.warning(
+                "[PEER] uid=%s | '%s' | gagal InputPeerChat(id=%s): %s (%s)",
+                user_id, gname, telethon_id, type(e).__name__, e,
+            )
 
-    # ── Kaedah 4: Raw int — last resort ──
+    # ── Kaedah 5: Raw telethon_id — last resort ──
     logger.warning(
-        "[PEER] uid=%s | guna raw int id=%s type=%s (tiada username/access_hash — mungkin gagal untuk channel)",
-        user_id, gid, target_type,
+        "[PEER] uid=%s | '%s' | ⚠ guna raw int id=%s (last resort — mungkin gagal jika tiada dalam session cache)",
+        user_id, gname, telethon_id,
     )
-    return int(gid)
+    return telethon_id
 
 # Rotation index: {user_id: next_message_index}
 _promo_rotation: dict[int, int] = {}
@@ -303,22 +379,44 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
             success_count = 0
             fail_count = 0
             flood_wait_total = 0
+            fail_reasons: list[str] = []
 
-            for group in groups:
+            for idx, group in enumerate(groups, 1):
                 gid         = group["group_id"]
                 gname       = group.get("group_name") or group.get("group_title") or gid
-                target_type = group.get("target_type") or "group"
+                target_type = group.get("target_type") or "supergroup"
                 username    = group.get("group_username") or ""
                 access_hash = group.get("access_hash") or ""
 
+                # ── Debug: log semua maklumat tersimpan untuk kumpulan ini ──
                 logger.info(
-                    "[PROMO] uid=%s | target='%s' id=%s type=%s username=%s",
-                    user_id, gname, gid, target_type, f"@{username}" if username else "-",
+                    "[PROMO] ── Group %d/%d ──────────────────────",
+                    idx, len(groups),
                 )
+                logger.info(
+                    "[PROMO] uid=%s | name='%s' | stored_id=%s | type='%s' | "
+                    "username=%s | has_access_hash=%s",
+                    user_id, gname, gid, target_type,
+                    f"@{username}" if username else "–",
+                    "ya" if access_hash else "tidak",
+                )
+
+                # Semak format ID yang tersimpan
+                raw_id_str = str(gid).strip()
+                if raw_id_str.startswith("-100"):
+                    id_format = "Telegram(-100 prefix)"
+                elif raw_id_str.startswith("-"):
+                    id_format = "Telegram(legacy group)"
+                elif raw_id_str.isdigit():
+                    id_format = "Telethon(internal positif)"
+                else:
+                    id_format = f"tidak diketahui: '{raw_id_str}'"
+                logger.info("[PROMO] uid=%s | id_format=%s", user_id, id_format)
 
                 # Pilih mesej: expert per-group > mesej umum
                 if expert_on and gid in group_msgs and group_msgs[gid]:
                     grp_msg = _with_footer(group_msgs[gid])
+                    logger.info("[PROMO] uid=%s | '%s' guna expert message", user_id, gname)
                 elif full_message:
                     grp_msg = full_message
                 else:
@@ -326,24 +424,42 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
                     continue
 
                 try:
-                    # ── Resolve entity dengan keutamaan: username > access_hash > raw int ──
-                    peer = await _resolve_peer(client, gid, target_type, access_hash, username, user_id, gname)
+                    # ── Resolve entity ──
+                    logger.info("[PROMO] uid=%s | '%s' resolving peer...", user_id, gname)
+                    peer = await _resolve_peer(
+                        client, gid, target_type, access_hash, username, user_id, gname
+                    )
+                    logger.info(
+                        "[PROMO] uid=%s | '%s' peer resolved → %s",
+                        user_id, gname, type(peer).__name__,
+                    )
 
+                    # ── Hantar mesej ──
                     await client.send_message(peer, grp_msg)
                     success_count += 1
-                    logger.info("[PROMO] uid=%s | ✓ BERJAYA hantar ke '%s' (id=%s type=%s)", user_id, gname, gid, target_type)
+                    logger.info(
+                        "[PROMO] uid=%s | ✓ BERJAYA hantar ke '%s' "
+                        "(stored_id=%s type=%s peer=%s)",
+                        user_id, gname, gid, target_type, type(peer).__name__,
+                    )
                     await asyncio.sleep(3)
 
                 except FloodWaitError as e:
                     wait_secs = e.seconds + 5
                     flood_wait_total += wait_secs
                     fail_count += 1
+                    reason = f"FloodWait {e.seconds}s"
+                    fail_reasons.append(f"'{gname}': {reason}")
                     logger.warning(
-                        "[PROMO] uid=%s | FloodWait ke '%s' (id=%s) — tunggu %ds (jumlah flood: %ds)",
+                        "[PROMO] uid=%s | ✗ FloodWait ke '%s' (id=%s) — "
+                        "tunggu %ds | jumlah flood: %ds",
                         user_id, gname, gid, wait_secs, flood_wait_total,
                     )
                     if flood_wait_total > 300:
-                        logger.error("[PROMO] uid=%s | FloodWait melebihi 5 minit — hentikan promo", user_id)
+                        logger.error(
+                            "[PROMO] uid=%s | FloodWait melebihi 5 minit — hentikan promo",
+                            user_id,
+                        )
                         await db.set_promo_running(user_id, False)
                         stop_promo_job(user_id)
                         await _notify_user(
@@ -357,57 +473,122 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
 
                 except SlowModeWaitError as e:
                     fail_count += 1
-                    logger.warning("[PROMO] uid=%s | SlowMode ke '%s' (id=%s) — %ds", user_id, gname, gid, e.seconds)
+                    reason = f"SlowMode {e.seconds}s"
+                    fail_reasons.append(f"'{gname}': {reason}")
+                    logger.warning(
+                        "[PROMO] uid=%s | ✗ SlowMode ke '%s' (id=%s) — "
+                        "kumpulan ada slow mode %ds",
+                        user_id, gname, gid, e.seconds,
+                    )
                     await asyncio.sleep(min(e.seconds, 60))
 
                 except ChatWriteForbiddenError:
                     fail_count += 1
+                    reason = "ChatWriteForbidden — tiada permission hantar mesej"
+                    fail_reasons.append(f"'{gname}': {reason}")
                     logger.warning(
                         "[PROMO] uid=%s | ✗ ChatWriteForbidden ke '%s' (id=%s type=%s) — "
-                        "pastikan userbot admin channel dengan permission 'Post Messages'",
+                        "userbot perlu permission 'Post Messages'",
                         user_id, gname, gid, target_type,
                     )
-                    if target_type == "channel":
-                        await _notify_user(
-                            user_id,
-                            f"⚠️ Gagal hantar ke channel *{gname}*.\n\n"
-                            "Pastikan akaun userbot ialah admin channel dan mempunyai permission *Post Messages*.",
-                        )
+                    await _notify_user(
+                        user_id,
+                        f"⚠️ *Gagal hantar ke* `{gname}`\n\n"
+                        f"Sebab: Tiada permission untuk hantar mesej.\n"
+                        f"Penyelesaian: Jadikan userbot sebagai admin dengan permission *Post Messages*.",
+                    )
 
-                except (ChannelPrivateError,):
+                except ChannelPrivateError:
                     fail_count += 1
+                    reason = "ChannelPrivate — userbot bukan ahli/admin"
+                    fail_reasons.append(f"'{gname}': {reason}")
                     logger.warning(
-                        "[PROMO] uid=%s | ✗ ChannelPrivate '%s' (id=%s) — userbot bukan ahli/admin",
+                        "[PROMO] uid=%s | ✗ ChannelPrivate '%s' (id=%s) — "
+                        "userbot bukan ahli atau kumpulan private",
                         user_id, gname, gid,
                     )
-                    if target_type == "channel":
-                        await _notify_user(
-                            user_id,
-                            f"⚠️ Gagal hantar ke channel *{gname}*.\n\n"
-                            "Pastikan akaun userbot ialah admin channel dan mempunyai permission *Post Messages*.",
-                        )
+                    await _notify_user(
+                        user_id,
+                        f"⚠️ *Gagal hantar ke* `{gname}`\n\n"
+                        f"Sebab: Kumpulan/channel private atau userbot bukan ahli.\n"
+                        f"Penyelesaian: Pastikan userbot sudah join kumpulan.",
+                    )
 
                 except ChatAdminRequiredError:
                     fail_count += 1
+                    reason = "AdminRequired — perlu admin untuk hantar mesej"
+                    fail_reasons.append(f"'{gname}': {reason}")
                     logger.warning(
                         "[PROMO] uid=%s | ✗ AdminRequired ke '%s' (id=%s type=%s) — "
-                        "userbot perlu admin untuk hantar mesej",
+                        "kumpulan ini memerlukan admin untuk hantar mesej",
                         user_id, gname, gid, target_type,
                     )
-                    if target_type == "channel":
-                        await _notify_user(
-                            user_id,
-                            f"⚠️ Gagal hantar ke channel *{gname}*.\n\n"
-                            "Pastikan akaun userbot ialah admin channel dan mempunyai permission *Post Messages*.",
-                        )
+                    await _notify_user(
+                        user_id,
+                        f"⚠️ *Gagal hantar ke* `{gname}`\n\n"
+                        f"Sebab: Kumpulan memerlukan admin untuk post.\n"
+                        f"Penyelesaian: Jadikan userbot sebagai admin.",
+                    )
 
-                except (UserBannedInChannelError,):
+                except UserBannedInChannelError:
                     fail_count += 1
-                    logger.warning("[PROMO] uid=%s | ✗ UserBanned dalam '%s' (id=%s)", user_id, gname, gid)
+                    reason = "UserBanned — userbot diharamkan dalam kumpulan ini"
+                    fail_reasons.append(f"'{gname}': {reason}")
+                    logger.warning(
+                        "[PROMO] uid=%s | ✗ UserBanned dalam '%s' (id=%s) — "
+                        "userbot telah diharamkan",
+                        user_id, gname, gid,
+                    )
+                    await _notify_user(
+                        user_id,
+                        f"⚠️ *Gagal hantar ke* `{gname}`\n\n"
+                        f"Sebab: Userbot telah diharamkan (banned) dalam kumpulan ini.\n"
+                        f"Penyelesaian: Buang kumpulan ini dari senarai promote.",
+                    )
+
+                except UserNotParticipantError:
+                    fail_count += 1
+                    reason = "UserNotParticipant — userbot belum join kumpulan"
+                    fail_reasons.append(f"'{gname}': {reason}")
+                    logger.warning(
+                        "[PROMO] uid=%s | ✗ UserNotParticipant '%s' (id=%s) — "
+                        "userbot belum join kumpulan",
+                        user_id, gname, gid,
+                    )
+                    await _notify_user(
+                        user_id,
+                        f"⚠️ *Gagal hantar ke* `{gname}`\n\n"
+                        f"Sebab: Userbot belum join kumpulan ini.\n"
+                        f"Penyelesaian: Join kumpulan melalui akaun userbot dahulu.",
+                    )
+
+                except PeerIdInvalidError:
+                    fail_count += 1
+                    reason = f"PeerIdInvalid — ID tidak sah (stored_id={gid} type={target_type})"
+                    fail_reasons.append(f"'{gname}': {reason}")
+                    logger.error(
+                        "[PROMO] uid=%s | ✗ PeerIdInvalid '%s' (stored_id=%s type=%s) — "
+                        "ID tidak dapat dikenalpasti oleh Telegram. "
+                        "Kemungkinan: format ID salah atau kumpulan sudah dipadam.",
+                        user_id, gname, gid, target_type,
+                    )
+
+                except (UsernameInvalidError, UsernameNotOccupiedError) as e:
+                    fail_count += 1
+                    reason = f"{type(e).__name__} — username @{username} tidak sah/wujud"
+                    fail_reasons.append(f"'{gname}': {reason}")
+                    logger.warning(
+                        "[PROMO] uid=%s | ✗ %s '%s' (username=@%s id=%s) — "
+                        "username tidak sah atau sudah berubah",
+                        user_id, type(e).__name__, gname, username, gid,
+                    )
 
                 except (AuthKeyUnregisteredError, UserDeactivatedBanError) as e:
                     err_name = type(e).__name__
-                    logger.error("[PROMO] uid=%s | Sesi tidak sah: %s — hentikan promo", user_id, err_name)
+                    logger.error(
+                        "[PROMO] uid=%s | ✗ Sesi tidak sah: %s — hentikan promo serta-merta",
+                        user_id, err_name,
+                    )
                     await db.set_promo_running(user_id, False)
                     stop_promo_job(user_id)
                     await _notify_user(
@@ -424,17 +605,25 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
 
                 except ValueError as e:
                     fail_count += 1
+                    reason = f"ValueError: {e} — entity tidak dapat diresolve"
+                    fail_reasons.append(f"'{gname}': {reason}")
                     logger.error(
-                        "[PROMO] uid=%s | ✗ ValueError '%s' (id=%s type=%s): %s — "
-                        "entity tidak dapat diresolve. Pilih semula target dari senarai.",
+                        "[PROMO] uid=%s | ✗ ValueError '%s' (stored_id=%s type=%s): %s — "
+                        "Cuba pilih semula kumpulan dari senarai untuk refresh access_hash.",
                         user_id, gname, gid, target_type, e,
                     )
 
                 except Exception as e:
                     fail_count += 1
+                    reason = f"{type(e).__name__}: {e}"
+                    fail_reasons.append(f"'{gname}': {reason}")
                     logger.error(
-                        "[PROMO] uid=%s | ✗ GAGAL hantar ke '%s' (id=%s type=%s): %s: %s",
-                        user_id, gname, gid, target_type, type(e).__name__, e,
+                        "[PROMO] uid=%s | ✗ GAGAL hantar ke '%s' "
+                        "(stored_id=%s type=%s peer_type=%s): %s",
+                        user_id, gname, gid, target_type,
+                        type(peer).__name__ if 'peer' in dir() else "–",
+                        reason,
+                        exc_info=True,
                     )
 
         finally:
@@ -484,15 +673,18 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
                         + next_run_str,
                     )
             elif fail_count > 0:
+                reasons_text = ""
+                if fail_reasons:
+                    shown = fail_reasons[:5]
+                    reasons_text = "\n\n*Sebab kegagalan:*\n" + "\n".join(f"• {r}" for r in shown)
+                    if len(fail_reasons) > 5:
+                        reasons_text += f"\n• ...dan {len(fail_reasons) - 5} lagi"
                 await _notify_user(
                     user_id,
                     f"⚠️ *Promosi Gagal Dihantar!*\n\n"
-                    f"Semua *{fail_count}* kumpulan/channel gagal.\n\n"
-                    f"Kemungkinan sebab:\n"
-                    f"• Akaun dihadkan Telegram\n"
-                    f"• Dikeluarkan dari kumpulan\n"
-                    f"• Sesi userbot tamat\n\n"
-                    f"Semak Status Account melalui 📚 Buat Userbot.",
+                    f"Semua *{fail_count}* kumpulan/channel gagal."
+                    + reasons_text +
+                    f"\n\nSemak Status Account melalui 📚 Buat Userbot.",
                 )
 
     except Exception as e:
