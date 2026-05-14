@@ -200,6 +200,7 @@ async def cb_plan_final(callback: CallbackQuery):
             uid, plan_key, months, total, coins_before, purchase_key,
         )
 
+        # ── Validate balance dahulu sebelum sentuh DB ──
         if coins_before < total:
             processed_subscription_purchases.discard(purchase_key)
             await callback.message.edit_text(
@@ -211,30 +212,8 @@ async def cb_plan_final(callback: CallbackQuery):
             )
             return
 
-        ok = await db.deduct_coins(uid, total, f"Aktifkan {plan['name']} {months} bulan")
-        if not ok:
-            processed_subscription_purchases.discard(purchase_key)
-            coins_now = await db.get_wallet(uid)
-            logger.error(
-                "[PURCHASE] purchase_failed (deduct) | user_id=%s | plan=%s | "
-                "coins_before=%s | coins_now=%s",
-                uid, plan_key, coins_before, coins_now,
-            )
-            await callback.message.edit_text(
-                f"❌ *Transaksi gagal!*\n\nBalance: *{coins_now:,} Syiling*\n\n"
-                "Sila cuba lagi atau hubungi @berryrcr.",
-                parse_mode="Markdown",
-            )
-            return
-
-        coins_after = coins_before - total
-
-        logger.info(
-            "[PURCHASE] purchase_success | user_id=%s | plan=%s | months=%s | "
-            "coins_before=%s | coins_deducted=%s | coins_after=%s | key=%s",
-            uid, plan_key, months, coins_before, total, coins_after, purchase_key,
-        )
-
+        # ── LANGKAH 1: Buat userbot jika perlu (context=buy) ──
+        # Dilakukan sebelum deduct supaya jika gagal, tiada coins ditolak.
         userbot_id = None
         if context == "buy":
             existing = await db.get_userbot(uid)
@@ -255,7 +234,45 @@ async def cb_plan_final(callback: CallbackQuery):
                 except Exception as e:
                     logger.warning("[PURCHASE] update session userbot_id gagal uid=%s: %s", uid, e)
 
+        # ── LANGKAH 2: Cipta subscription DAHULU ──
+        # Jika gagal → exception → caught oleh outer except → coins TIDAK ditolak.
         started, expires = await db.create_subscription(uid, plan_key, months)
+
+        # ── LANGKAH 3: Tolak coins SELEPAS subscription berjaya ──
+        # Jika deduct gagal selepas subscription aktif → refund & batalkan subscription.
+        ok = await db.deduct_coins(uid, total, f"Aktifkan {plan['name']} {months} bulan")
+        if not ok:
+            # Subscription dah wujud tapi coins gagal ditolak — refund: batalkan subscription
+            processed_subscription_purchases.discard(purchase_key)
+            coins_now = await db.get_wallet(uid)
+            logger.critical(
+                "[PURCHASE] purchase_failed (deduct after sub created) | "
+                "user_id=%s | plan=%s | coins_before=%s | coins_now=%s — batalkan subscription",
+                uid, plan_key, coins_before, coins_now,
+            )
+            try:
+                from services.supabase_service import get_client as _get_client
+                _client = await _get_client()
+                await _client.table("subscriptions").update({"active": False}).eq(
+                    "user_id", uid
+                ).eq("active", True).execute()
+                logger.warning("[PURCHASE] subscription dibatalkan sebab deduct gagal uid=%s", uid)
+            except Exception as rb_err:
+                logger.error("[PURCHASE] gagal batalkan subscription uid=%s: %s", uid, rb_err)
+            await callback.message.edit_text(
+                f"❌ *Transaksi gagal!*\n\nBalance: *{coins_now:,} Syiling*\n\n"
+                "Sila cuba lagi atau hubungi @berryrcr.",
+                parse_mode="Markdown",
+            )
+            return
+
+        coins_after = coins_before - total
+
+        logger.info(
+            "[PURCHASE] purchase_success | user_id=%s | plan=%s | months=%s | "
+            "coins_before=%s | coins_deducted=%s | coins_after=%s | key=%s",
+            uid, plan_key, months, coins_before, total, coins_after, purchase_key,
+        )
         expires_str = expires.strftime("%d %b %Y")
         started_str = started.strftime("%d %b %Y")
 

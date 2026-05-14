@@ -300,8 +300,13 @@ async def create_subscription(user_id: int, plan: str, months: int = 1):
     except Exception as e:
         logger.warning("create_subscription: update active=False gagal uid=%s: %s", user_id, e)
 
-    # Insert sub baru dengan kolum penuh
-    record = {
+    # ── 3-tier insert: dari paling lengkap ke paling minimal ──
+    # Tier 1: semua kolum baru (expires_at + plan_started_at + plan_duration_months)
+    # Tier 2: dengan expires_at sahaja (tanpa plan_started_at / plan_duration_months)
+    # Tier 3: kolum asas sahaja — wajib ada (user_id, plan, active, created_at)
+    #         Digunakan jika expires_at column pun belum dibuat dalam Supabase.
+
+    tier1 = {
         "user_id":              user_id,
         "plan":                 plan,
         "active":               True,
@@ -310,28 +315,48 @@ async def create_subscription(user_id: int, plan: str, months: int = 1):
         "plan_started_at":      base_date.isoformat(),
         "plan_duration_months": months,
     }
-    try:
-        await client.table("subscriptions").insert(record).execute()
-    except Exception as e:
-        logger.warning(
-            "create_subscription: insert penuh gagal uid=%s: %s — cuba tanpa kolum baru",
-            user_id, e,
-        )
-        # Fallback: insert tanpa kolum baru (schema lama)
-        await client.table("subscriptions").insert({
-            "user_id":    user_id,
-            "plan":       plan,
-            "active":     True,
-            "created_at": now_my.isoformat(),
-            "expires_at": new_expires.isoformat(),
-        }).execute()
+    tier2 = {
+        "user_id":    user_id,
+        "plan":       plan,
+        "active":     True,
+        "created_at": now_my.isoformat(),
+        "expires_at": new_expires.isoformat(),
+    }
+    tier3 = {
+        "user_id":    user_id,
+        "plan":       plan,
+        "active":     True,
+        "created_at": now_my.isoformat(),
+    }
 
-    logger.info(
-        "create_subscription: uid=%s plan=%s months=%s mula=%s tamat=%s",
-        user_id, plan, months,
-        base_date.strftime("%Y-%m-%d"),
-        new_expires.strftime("%Y-%m-%d"),
-    )
+    inserted = False
+    for tier_name, tier_record in [("tier1_full", tier1), ("tier2_expires", tier2), ("tier3_minimal", tier3)]:
+        try:
+            await client.table("subscriptions").insert(tier_record).execute()
+            logger.info(
+                "create_subscription: insert OK (%s) | uid=%s | plan=%s | months=%s | mula=%s | tamat=%s",
+                tier_name, user_id, plan, months,
+                base_date.strftime("%Y-%m-%d"),
+                new_expires.strftime("%Y-%m-%d"),
+            )
+            inserted = True
+            break
+        except Exception as e:
+            logger.warning(
+                "create_subscription: insert %s gagal uid=%s — cuba tier seterusnya: %s",
+                tier_name, user_id, e,
+            )
+
+    if not inserted:
+        logger.error(
+            "create_subscription: SEMUA tier gagal uid=%s plan=%s — subscription TIDAK dicipta",
+            user_id, plan,
+        )
+        raise RuntimeError(
+            f"create_subscription gagal untuk uid={user_id} plan={plan} — "
+            "semua insert tier gagal. Sila jalankan SQL migration dalam Supabase."
+        )
+
     return base_date, new_expires
 
 
