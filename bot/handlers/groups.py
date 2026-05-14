@@ -369,7 +369,8 @@ async def cb_select_groups_list(callback: CallbackQuery, state: FSMContext):
         groups = await fetch_user_groups(session["session_string"])
         if not groups:
             await msg.edit_text(
-                "ℹ️ Tiada kumpulan ditemui. Pastikan akaun sudah menyertai sekurang-kurangnya satu kumpulan.",
+                "ℹ️ Tiada kumpulan ditemui.\n\n"
+                "Pastikan akaun sudah menyertai sekurang-kurangnya satu kumpulan.",
                 reply_markup=back_to_menu_kb(),
             )
             return
@@ -379,11 +380,12 @@ async def cb_select_groups_list(callback: CallbackQuery, state: FSMContext):
         selected_ids        = {int(row["group_id"]) for row in saved}
         _temp_selected[uid] = selected_ids
 
+        count = len(selected_ids)
         await state.set_state(GroupsFSM.selecting)
         await msg.edit_text(
             f"👥 *Pilih Kumpulan Promote*\n\n"
-            f"Ditemui *{len(groups)}* kumpulan.\n"
-            "✅ = dipilih | ◻️ = tidak dipilih",
+            f"Ditemui *{len(groups)}* kumpulan dalam akaun anda.\n\n"
+            f"Tick ✅ kumpulan yang anda mahu promote, kemudian tekan *💾 Save Selection* untuk simpan.",
             parse_mode="Markdown",
             reply_markup=groups_selection_kb(groups, selected_ids),
         )
@@ -400,6 +402,11 @@ async def cb_select_groups_list(callback: CallbackQuery, state: FSMContext):
 async def cb_select_groups(callback: CallbackQuery, state: FSMContext):
     callback.data = "select_groups_list"
     await cb_select_groups_list(callback, state)
+
+
+@router.callback_query(F.data == "groups_counter_noop")
+async def cb_groups_counter_noop(callback: CallbackQuery):
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("toggle_group_"))
@@ -426,18 +433,30 @@ async def cb_save_groups(callback: CallbackQuery, state: FSMContext):
     selected = _temp_selected.get(uid, set())
 
     if not selected:
-        await callback.answer("⚠️ Sila pilih sekurang-kurangnya satu kumpulan!", show_alert=True)
+        await callback.answer(
+            "⚠️ Belum ada kumpulan dipilih!\nTick sekurang-kurangnya satu kumpulan dahulu.",
+            show_alert=True,
+        )
         return
 
-    await callback.answer("✅ Menyimpan kumpulan...")
+    await callback.answer("💾 Menyimpan pilihan...")
     selected_groups = [g for g in groups if g["id"] in selected]
     await db.save_selected_groups(uid, selected_groups)
     _temp_groups.pop(uid, None)
     _temp_selected.pop(uid, None)
     await state.clear()
 
+    count = len(selected_groups)
+    names = "\n".join(
+        f"  • {g.get('title', 'Tanpa nama')[:35]}"
+        for g in selected_groups[:10]
+    )
+    extra = f"\n  _...dan {count - 10} lagi_" if count > 10 else ""
+
     await callback.message.edit_text(
-        f"✅ *{len(selected_groups)} kumpulan berjaya disimpan!*",
+        f"✅ *{count} kumpulan berjaya dipilih untuk promote!*\n\n"
+        f"{names}{extra}\n\n"
+        f"_Tekan 🚀 Start Promote dalam Control Panel untuk mula._",
         parse_mode="Markdown",
         reply_markup=_groups_manage_kb(),
     )

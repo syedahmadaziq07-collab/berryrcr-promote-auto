@@ -294,21 +294,39 @@ def confirm_kb(confirm_data: str, cancel_data: str = "main_menu") -> InlineKeybo
 
 def groups_selection_kb(groups: list, selected_ids: set) -> InlineKeyboardMarkup:
     buttons = []
+
+    # ── Live counter row (non-clickable info) ──
+    count = len(selected_ids)
+    if count == 0:
+        counter_text = "◻️ Belum pilih kumpulan"
+    elif count == 1:
+        counter_text = "✅ Dipilih: 1 kumpulan"
+    else:
+        counter_text = f"✅ Dipilih: {count} kumpulan"
+    buttons.append([
+        InlineKeyboardButton(text=counter_text, callback_data="groups_counter_noop"),
+    ])
+
+    # ── Group list ──
     for g in groups:
         gid   = g["id"]
-        title = g["title"][:28]
-        check = "✅ " if gid in selected_ids else "◻️ "
+        title = g["title"][:30]
+        check = "✅" if gid in selected_ids else "◻️"
         ttype = g.get("target_type", "group")
         icon  = "📢" if ttype == "channel" else ("👥" if ttype == "supergroup" else "💬")
         buttons.append([
             InlineKeyboardButton(
-                text=f"{check}{icon} {title}",
+                text=f"{check} {icon} {title}",
                 callback_data=f"toggle_group_{gid}",
             )
         ])
+
+    # ── Action buttons ──
     buttons.append([
-        InlineKeyboardButton(text="💾 Simpan Pilihan", callback_data="save_groups"),
-        InlineKeyboardButton(text="🔙 Kembali",        callback_data="main_menu"),
+        InlineKeyboardButton(text="💾 Save Selection", callback_data="save_groups"),
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="↩️ Back", callback_data="groups_manage"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
