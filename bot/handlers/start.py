@@ -28,7 +28,7 @@ WELCOME_MESSAGE = """
 
 1️⃣ Topup syiling dekat 🛒 Kedai
 2️⃣ Buy Userbot untuk unlock access
-3️⃣ Activate plan korang (PLUS / PRO) di tambah month
+3️⃣ Activate plan korang (PLUS / PRO) dekat 🛠️ Setup Month & Plan
 4️⃣ Connect akaun Telegram dekat 📚 Buat Userbot
 5️⃣ Masuk ⚙️ Tetapan
 6️⃣ Setup 👥 Manage Group
