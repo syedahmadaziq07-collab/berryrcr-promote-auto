@@ -1,0 +1,157 @@
+OBJECTIVE:
+Fix critical bugs causing "⚠️ Ralat semasa memproses purchase" error when users try to purchase subscription plans.
+━━━━━━━━━━━━━━━━━━━━
+🔴 CRITICAL FIXES REQUIRED
+━━━━━━━━━━━━━━━━━━━━
+FIX #1: Supabase Database Schema
+Run this SQL in Supabase SQL Editor:
+sql-- Add missing columns to subscriptions table
+ALTER TABLE subscriptions 
+ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+
+ALTER TABLE subscriptions 
+ADD COLUMN IF NOT EXISTS plan_started_at TIMESTAMPTZ;
+
+ALTER TABLE subscriptions 
+ADD COLUMN IF NOT EXISTS plan_duration_months INTEGER DEFAULT 1;
+
+-- Disable RLS or add proper INSERT policy
+ALTER TABLE subscriptions DISABLE ROW LEVEL SECURITY;
+
+-- OR if you want to keep RLS, add this policy:
+CREATE POLICY "Allow service role full access to subscriptions"
+ON subscriptions
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+━━━━━━━━━━━━━━━━━━━━
+FIX #2: Fix Transaction Order in plan_flow.py
+Location: bot/handlers/plan_flow.py around line 214-258
+PROBLEM:
+Coins are deducted BEFORE subscription is created. If subscription creation fails, user loses coins but gets no plan.
+CURRENT CODE (WRONG):
+python# Line ~214
+ok = await db.deduct_coins(uid, total, ...)  # ← Coins DELETED first ❌
+
+# Line ~258  
+started, expires = await db.create_subscription(uid, plan_key, months)  # ← If this CRASHES...
+# Result: User lost coins but no subscription! 💀
+FIX TO:
+python# STEP 1: Create subscription FIRST
+started, expires = await db.create_subscription(uid, plan_key, months)
+
+# STEP 2: Only deduct coins if subscription was successful
+if started:
+    ok = await db.deduct_coins(uid, total, f"Beli plan {plan_key.upper()} ({months} bulan)")
+    if not ok:
+        # If deduct fails, rollback subscription (optional - add rollback function)
+        await callback.message.edit_text("❌ Ralat menolak syiling. Sila cuba lagi.")
+        return
+else:
+    await callback.message.edit_text("❌ Gagal membuat subscription. Sila cuba lagi.")
+    return
+━━━━━━━━━━━━━━━━━━━━
+FIX #3: Fix Fallback Insert in database.py
+Location: bot/database.py line ~321 (fallback insert in create_subscription)
+PROBLEM:
+The fallback insert ALSO includes expires_at column, so if column doesn't exist, fallback ALSO crashes.
+CURRENT CODE (WRONG):
+python# Tier 2 fallback (line ~321)
+partial = {
+    'user_id': user_id,
+    'plan': plan_key,
+    'active': True,
+    'created_at': ...,
+    'expires_at': expires_at,  # ← If column missing, this CRASHES too! ❌
+}
+FIX TO:
+python# Tier 3 — Minimal fallback (TRULY minimal - no optional columns)
+minimal = {
+    'user_id': user_id,
+    'plan': plan_key,
+    'active': True,
+    'created_at': datetime.now(_MY_TZ).isoformat()
+    # NO expires_at here - this is for old schema compatibility
+}
+result = client.table("subscriptions").insert(minimal).execute()
+━━━━━━━━━━━━━━━━━━━━
+FIX #4: Add Better Error Logging
+Location: bot/handlers/plan_flow.py line ~327-339 (except Exception block in cb_plan_final)
+CURRENT CODE:
+pythonexcept Exception as exc:
+    logger.error(...)  # ← Doesn't show FULL traceback
+    await callback.message.edit_text("⚠️ Ralat semasa memproses purchase.")
+FIX TO:
+pythonexcept Exception as exc:
+    logger.exception(  # ← Use .exception() to show full traceback
+        "[PURCHASE] FATAL ERROR | user_id=%s | plan=%s | months=%s",
+        uid, plan_key, months
+    )
+    await callback.message.edit_text(
+        "⚠️ Ralat semasa memproses purchase.\n\n"
+        f"Error: {str(exc)[:100]}\n\n"  # Show first 100 chars of error to user
+        "Sila hubungi admin jika masalah berterusan."
+    )
+━━━━━━━━━━━━━━━━━━━━
+FIX #5: Add Try-Except to msg_tambah_bulan
+Location: bot/handlers/kedai.py line ~953-1002
+PROBLEM:
+No error handling in the initial button handler. If it crashes, user gets no response.
+ADD:
+python@router.message(F.text == "🛠️ Setup Month & Plan")
+async def msg_tambah_bulan(message: Message):
+    try:
+        uid = message.from_user.id
+        
+        # ... existing code ...
+        
+    except Exception as e:
+        logger.exception(f"msg_tambah_bulan error for user {uid}")
+        await message.answer(
+            "❌ Ralat semasa load menu.\n\n"
+            "Sila cuba lagi atau hubungi admin.",
+            reply_markup=kb.get_main_menu()
+        )
+━━━━━━━━━━━━━━━━━━━━
+FIX #6: Verify Supabase Configuration
+Check in Replit Secrets:
+
+SUPABASE_KEY must be service_role key, NOT anon key
+
+Go to Supabase Dashboard → Settings → API
+Copy the service_role key (NOT the anon key)
+Update Replit Secret
+
+
+Verify Supabase URL is correct
+
+━━━━━━━━━━━━━━━━━━━━
+✅ TESTING CHECKLIST
+━━━━━━━━━━━━━━━━━━━━
+After applying fixes:
+
+[ ] Verify SQL schema changes applied in Supabase
+[ ] Verify SUPABASE_KEY is service_role key
+[ ] Restart bot
+[ ] Test flow:
+
+User has coins (e.g. 1000)
+Click "🛠️ Setup Month & Plan"
+Select PLUS plan
+Select 1 month
+Click ✅ Confirm
+Expected: Success message, coins deducted, subscription created
+
+
+[ ] Check logs for any errors
+[ ] Verify in Supabase that subscription record was created with all columns
+
+━━━━━━━━━━━━━━━━━━━━
+📋 SUMMARY OF CHANGES
+━━━━━━━━━━━━━━━━━━━━
+PriorityFileChange🔴 #1Supabase SQLAdd missing columns + fix RLS🔴 #2plan_flow.pySwap transaction order (subscription first, coins second)🔴 #3database.pyFix fallback insert to exclude expires_at🟡 #4plan_flow.pyAdd better error logging with traceback🟡 #5kedai.pyAdd try-except to msg_tambah_bulan🟡 #6Replit SecretsVerify service_role key
+━━━━━━━━━━━━━━━━━━━━
+EXECUTE ALL FIXES IN ORDER FROM #1 TO #6.
+DO NOT skip FIX #1 (SQL) - it is CRITICAL.
+After fixing, test the full purchase flow end-to-end.

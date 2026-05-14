@@ -952,54 +952,63 @@ async def msg_laman_utama(message: Message, state: FSMContext):
 
 @router.message(F.text == "🛠️ Setup Month & Plan")
 async def msg_tambah_bulan(message: Message, state: FSMContext):
-    await state.clear()
-    uid         = message.from_user.id
-    userbot_rec = await db.get_userbot(uid)
+    uid = message.from_user.id
+    try:
+        await state.clear()
+        userbot_rec = await db.get_userbot(uid)
 
-    if not userbot_rec:
+        if not userbot_rec:
+            await message.answer(
+                "⚠️ *Korang belum ada Userbot!*\n\n"
+                "Beli userbot dulu dekat 🛍️ Buy Userbot baru boleh tambah bulan.",
+                parse_mode="Markdown",
+                reply_markup=kedai_menu_kb(),
+            )
+            return
+
+        balance = await db.get_wallet(uid)
+        sub     = await db.get_active_subscription(uid)
+
+        if sub:
+            plan_now = sub.get("plan", "—")
+            expires  = sub.get("expires_at", "")
+            if expires:
+                try:
+                    from datetime import datetime, timezone, timedelta
+                    _MY_TZ = timezone(timedelta(hours=8))
+                    if isinstance(expires, str):
+                        expires = expires.replace("Z", "+00:00")
+                        exp_dt  = datetime.fromisoformat(expires).astimezone(_MY_TZ)
+                    else:
+                        exp_dt  = expires.astimezone(_MY_TZ)
+                    expires_display = exp_dt.strftime("%d %b %Y")
+                except Exception:
+                    expires_display = str(expires)[:10]
+            else:
+                expires_display = "—"
+            status_line = (
+                f"📦 Plan Semasa: *{plan_now}*\n"
+                f"📅 Tamat: *{expires_display}*\n\n"
+            )
+        else:
+            status_line = "📦 Plan Semasa: *Tiada*\n\n"
+
+        text = (
+            "⏳ *Tambah Bulan*\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            f"{status_line}"
+            f"💰 Wallet: *{balance:,} Syiling*\n\n"
+            "Pilih plan yang korang nak aktifkan:"
+        )
+        await message.answer(text, parse_mode="Markdown", reply_markup=tambah_bulan_plans_kb())
+
+    except Exception as e:
+        logger.exception("msg_tambah_bulan error uid=%s: %s", uid, e)
         await message.answer(
-            "⚠️ *Korang belum ada Userbot!*\n\n"
-            "Beli userbot dulu dekat 🛍️ Buy Userbot baru boleh tambah bulan.",
+            "❌ *Ralat semasa load menu.*\n\nSila cuba lagi atau hubungi @berryrcr.",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
-        return
-
-    balance = await db.get_wallet(uid)
-    sub     = await db.get_active_subscription(uid)
-
-    if sub:
-        plan_now = sub.get("plan", "—")
-        expires  = sub.get("expires_at", "")
-        if expires:
-            try:
-                from datetime import datetime, timezone, timedelta
-                _MY_TZ = timezone(timedelta(hours=8))
-                if isinstance(expires, str):
-                    expires = expires.replace("Z", "+00:00")
-                    exp_dt  = datetime.fromisoformat(expires).astimezone(_MY_TZ)
-                else:
-                    exp_dt  = expires.astimezone(_MY_TZ)
-                expires_display = exp_dt.strftime("%d %b %Y")
-            except Exception:
-                expires_display = str(expires)[:10]
-        else:
-            expires_display = "—"
-        status_line = (
-            f"📦 Plan Semasa: *{plan_now}*\n"
-            f"📅 Tamat: *{expires_display}*\n\n"
-        )
-    else:
-        status_line = "📦 Plan Semasa: *Tiada*\n\n"
-
-    text = (
-        "⏳ *Tambah Bulan*\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        f"{status_line}"
-        f"💰 Wallet: *{balance:,} Syiling*\n\n"
-        "Pilih plan yang korang nak aktifkan:"
-    )
-    await message.answer(text, parse_mode="Markdown", reply_markup=tambah_bulan_plans_kb())
 
 
 # ─────────────────────────────────────────────

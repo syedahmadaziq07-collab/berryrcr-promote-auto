@@ -327,12 +327,14 @@ async def cb_plan_final(callback: CallbackQuery):
     except Exception as exc:
         processed_subscription_purchases.discard(purchase_key)
         logger.exception(
-            "[PURCHASE] purchase_failed (exception) | user_id=%s | plan=%s | error=%s",
-            uid, plan_key, exc,
+            "[PURCHASE] FATAL ERROR | user_id=%s | plan=%s | months=%s | error=%s",
+            uid, plan_key, months if 'months' in dir() else '?', exc,
         )
         try:
             await callback.message.edit_text(
-                "⚠️ *Ralat semasa memproses purchase.*\n\nSila cuba lagi atau hubungi @berryrcr.",
+                "⚠️ *Ralat semasa memproses purchase.*\n\n"
+                f"`{str(exc)[:120]}`\n\n"
+                "Sila cuba lagi atau hubungi @berryrcr.",
                 parse_mode="Markdown",
             )
         except Exception:
