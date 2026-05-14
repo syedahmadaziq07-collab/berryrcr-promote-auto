@@ -45,13 +45,26 @@ Anda perlu beli userbot dahulu, kemudian aktifkan pelan.
 ━━━━━━━━━━━━━━━
 *Pelan yang Tersedia:*
 
-⭐ *PLUS — 300 Syiling (RM3)*
+⚡ *PLUS — 300 Syiling (RM3)*
 • Auto promote ke group pilihan
 • Footer wajib @berryrcr
+• 📩 Backup Email (confirmation & recovery notice)
+• 🔑 Recover Token access
+• Basic auto recovery notification
 
-🔥 *PRO — 600 Syiling (RM6)*
-• Auto promote ke group pilihan
+👑 *PRO — 600 Syiling (RM6)*
+• Semua feature PLUS, ditambah:
 • Boleh tutup footer
+• Lower delay limit
+• More group / channel slot
+• More saved messages
+• Smart message rotate
+• Advanced Mode (Lanjutan 🧠)
+• Smart anti-flood protection
+• Priority scheduler
+• Live monitoring
+• 📩 Backup Email (confirmation & recovery notice)
+• 🔑 Recover Token access
 • Keutamaan sokongan
 
 ━━━━━━━━━━━━━━━
