@@ -68,6 +68,7 @@ async def cmd_admin(message: Message):
         "/topup_pending — Senarai topup menunggu\n"
         "/approve\\_topup `<id>` — Lulus topup\n"
         "/reject\\_topup `<id>` — Tolak topup\n"
+        "/check\\_expiry — Trigger expiry notification check\n"
     )
     await message.answer(text, parse_mode="Markdown")
     await db.write_admin_log(ADMIN_ID, "view_dashboard")
@@ -819,3 +820,31 @@ async def cmd_test_email_backup(message: Message):
             f"SMTP status: {smtp_info}",
             parse_mode="Markdown",
         )
+
+
+# ──────────────────────────────────────────────────────────────
+# /check_expiry — Manual trigger expiry notification check
+# ──────────────────────────────────────────────────────────────
+
+@router.message(Command("check_expiry"))
+@admin_only
+async def cmd_check_expiry(message: Message):
+    from services import expiry_notifier
+    wait = await message.answer("⏳ Running expiry check...")
+    try:
+        stats = await expiry_notifier.run_single_check()
+        await wait.delete()
+        await message.answer(
+            "✅ *Expiry Check Selesai*\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            f"📋 Subscription diperiksa: *{stats['checked']}*\n"
+            f"📨 Notifikasi dihantar:    *{stats['sent']}*\n"
+            f"⏭️ Dilangkau (dah hantar): *{stats['skipped']}*\n"
+            f"❌ Ralat:                  *{stats['errors']}*\n\n"
+            "_Semak log bot untuk butiran setiap notifikasi._",
+            parse_mode="Markdown",
+        )
+        await db.write_admin_log(ADMIN_ID, f"check_expiry: sent={stats['sent']} errors={stats['errors']}")
+    except Exception as e:
+        await wait.delete()
+        await message.answer(f"❌ Ralat semasa check: `{e}`", parse_mode="Markdown")

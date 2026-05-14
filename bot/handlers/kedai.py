@@ -1061,6 +1061,39 @@ async def cb_tambah_bulan_plan_back(callback: CallbackQuery):
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=tambah_bulan_plans_kb())
 
 
+@router.callback_query(F.data == "goto_kedai_renew")
+async def cb_goto_kedai_renew(callback: CallbackQuery, state: FSMContext):
+    """Renew button from expiry notification — send kedai menu directly."""
+    await callback.answer()
+    await state.clear()
+    uid     = callback.from_user.id
+    balance = await db.get_wallet(uid)
+    sub     = await db.get_active_subscription(uid)
+
+    plan_now = sub.get("plan", "Tiada") if sub else "Tiada"
+    expires  = sub.get("expires_at", "") if sub else ""
+    if expires:
+        try:
+            from datetime import datetime, timezone, timedelta
+            _MY_TZ = timezone(timedelta(hours=8))
+            exp_dt  = datetime.fromisoformat(str(expires).replace("Z", "+00:00")).astimezone(_MY_TZ)
+            expires_display = exp_dt.strftime("%d %b %Y")
+        except Exception:
+            expires_display = str(expires)[:10]
+        status_line = f"📦 Plan Semasa: *{plan_now}*\n📅 Tamat: *{expires_display}*\n\n"
+    else:
+        status_line = "📦 Plan Semasa: *Tiada*\n\n"
+
+    text = (
+        "⏳ *Tambah Bulan*\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"{status_line}"
+        f"💰 Wallet: *{balance:,} Syiling*\n\n"
+        "Pilih plan yang korang nak aktifkan:"
+    )
+    await callback.message.answer(text, parse_mode="Markdown", reply_markup=tambah_bulan_plans_kb())
+
+
 @router.callback_query(F.data == "tambah_bulan_cancel")
 async def cb_tambah_bulan_cancel(callback: CallbackQuery):
     await callback.answer("❌ Dibatalkan.")
