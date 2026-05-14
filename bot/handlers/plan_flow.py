@@ -37,11 +37,20 @@ PLAN_COINS = {"PLUS": 300, "PRO": 600, "PREMIUM": 1000}
 PLAN_ICON  = {"PLUS": "⚡ PLUS", "PRO": "👑 PRO", "PREMIUM": "💎 PREMIUM"}
 
 # ─────────────────────────────────────────────
-# In-memory idempotency guard
-# Key format: "{user_id}:{message_id}"
-# Prevents duplicate deductions even if DB check is slow
+# In-memory guards
+#
+# processed_subscription_purchases — idempotency set
+#   Key: "{user_id}:{message_id}"
+#   Added BEFORE DB write, never removed on success.
+#   Prevents duplicate deductions for the same confirm message.
+#
+# _active_purchases — per-user processing lock
+#   Key: user_id (int)
+#   Added at start of handler, removed in finally block.
+#   Blocks a second tap while the first is still running.
 # ─────────────────────────────────────────────
 processed_subscription_purchases: set[str] = set()
+_active_purchases: set[int] = set()
 
 
 def _duration_text(plan_key: str) -> str:
@@ -137,154 +146,180 @@ async def cb_plan_dur_back(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("plan_final:"))
 async def cb_plan_final(callback: CallbackQuery):
-    # Answer immediately so button doesn't stay loading
-    await callback.answer("⏳ Memproses...")
-
     uid        = callback.from_user.id
     message_id = callback.message.message_id
-
-    # ── Idempotency key: unique per user + confirmation message ──
     purchase_key = f"{uid}:{message_id}"
 
-    # ── In-memory duplicate check (fast path) ──
+    # ── Fast-path: idempotency — same confirm message already processed ──
     if purchase_key in processed_subscription_purchases:
         await callback.answer("⚠️ Purchase ini sudah diproses.", show_alert=True)
-        logger.warning(
-            "[PURCHASE] duplicate_attempt=True | user_id=%s | purchase_key=%s",
-            uid, purchase_key,
-        )
+        logger.warning("[PURCHASE] duplicate_click_blocked (idempotency) | user_id=%s | key=%s", uid, purchase_key)
         return
 
-    try:
-        _, context, plan_key, months_str = callback.data.split(":")
-        months   = int(months_str)
-        plan_key = plan_key.upper()
-    except Exception:
-        await callback.message.edit_text("⚠️ Ralat data. Sila cuba lagi.")
+    # ── Fast-path: per-user active lock — handler still running ──
+    if uid in _active_purchases:
+        await callback.answer("⚠️ Purchase sedang diproses... sila tunggu.", show_alert=True)
+        logger.warning("[PURCHASE] duplicate_click_blocked (active_lock) | user_id=%s", uid)
         return
 
-    if plan_key not in PLAN_COINS:
-        await callback.message.edit_text("⚠️ Pelan tidak sah.")
-        return
+    # ── Dismiss spinner immediately ──
+    await callback.answer("⏳ Memproses...")
 
-    coins_per_month = PLAN_COINS[plan_key]
-    total           = coins_per_month * months
-    plan            = COIN_PLANS[plan_key]
-    icon            = PLAN_ICON[plan_key]
-
-    # ── Fetch balance BEFORE any deduction ──
-    coins_before = await db.get_wallet(uid)
-
-    logger.info(
-        "[PURCHASE] user_id=%s | plan=%s | months=%s | total=%s | coins_before=%s | purchase_key=%s",
-        uid, plan_key, months, total, coins_before, purchase_key,
-    )
-
-    if coins_before < total:
-        await callback.message.edit_text(
-            f"❌ *Baki tak cukup bro!*\n\n"
-            f"Need: *{total:,} Syiling*\n"
-            f"Ada: *{coins_before:,} Syiling*\n\n"
-            "Reload dulu via 🪙 Reload Syiling.",
-            parse_mode="Markdown",
-        )
-        return
-
-    # ── Mark in-memory BEFORE DB write to block concurrent taps ──
+    # ── Acquire both guards ──
+    _active_purchases.add(uid)
     processed_subscription_purchases.add(purchase_key)
 
-    ok = await db.deduct_coins(uid, total, f"Aktifkan {plan['name']} {months} bulan")
-    if not ok:
-        # Deduction failed — unmark so user can retry
-        processed_subscription_purchases.discard(purchase_key)
-        coins_after = await db.get_wallet(uid)
-        logger.error(
-            "[PURCHASE] deduct_failed | user_id=%s | plan=%s | coins_before=%s | coins_after=%s",
-            uid, plan_key, coins_before, coins_after,
+    context  = "unknown"
+    plan_key = "unknown"
+
+    try:
+        try:
+            _, context, plan_key, months_str = callback.data.split(":")
+            months   = int(months_str)
+            plan_key = plan_key.upper()
+        except Exception:
+            processed_subscription_purchases.discard(purchase_key)
+            await callback.message.edit_text("⚠️ Ralat data. Sila cuba lagi.")
+            return
+
+        if plan_key not in PLAN_COINS:
+            processed_subscription_purchases.discard(purchase_key)
+            await callback.message.edit_text("⚠️ Pelan tidak sah.")
+            return
+
+        coins_per_month = PLAN_COINS[plan_key]
+        total           = coins_per_month * months
+        plan            = COIN_PLANS[plan_key]
+        icon            = PLAN_ICON[plan_key]
+
+        coins_before = await db.get_wallet(uid)
+
+        logger.info(
+            "[PURCHASE] purchase_started | user_id=%s | plan=%s | months=%s | "
+            "total=%s | coins_before=%s | key=%s",
+            uid, plan_key, months, total, coins_before, purchase_key,
         )
-        await callback.message.edit_text(
-            f"❌ *Transaksi gagal!*\n\nBalance: *{coins_after:,} Syiling*",
-            parse_mode="Markdown",
+
+        if coins_before < total:
+            processed_subscription_purchases.discard(purchase_key)
+            await callback.message.edit_text(
+                f"❌ *Baki tak cukup bro!*\n\n"
+                f"Need: *{total:,} Syiling*\n"
+                f"Ada: *{coins_before:,} Syiling*\n\n"
+                "Reload dulu via 🪙 Reload Syiling.",
+                parse_mode="Markdown",
+            )
+            return
+
+        ok = await db.deduct_coins(uid, total, f"Aktifkan {plan['name']} {months} bulan")
+        if not ok:
+            processed_subscription_purchases.discard(purchase_key)
+            coins_now = await db.get_wallet(uid)
+            logger.error(
+                "[PURCHASE] purchase_failed (deduct) | user_id=%s | plan=%s | "
+                "coins_before=%s | coins_now=%s",
+                uid, plan_key, coins_before, coins_now,
+            )
+            await callback.message.edit_text(
+                f"❌ *Transaksi gagal!*\n\nBalance: *{coins_now:,} Syiling*\n\n"
+                "Sila cuba lagi atau hubungi @berryrcr.",
+                parse_mode="Markdown",
+            )
+            return
+
+        coins_after = coins_before - total
+
+        logger.info(
+            "[PURCHASE] purchase_success | user_id=%s | plan=%s | months=%s | "
+            "coins_before=%s | coins_deducted=%s | coins_after=%s | key=%s",
+            uid, plan_key, months, coins_before, total, coins_after, purchase_key,
         )
-        return
 
-    coins_after = coins_before - total
+        userbot_id = None
+        if context == "buy":
+            existing = await db.get_userbot(uid)
+            if existing:
+                userbot_id = existing.get("userbot_id")
+            else:
+                userbot_id = await db.create_userbot(uid)
+                try:
+                    session = await db.get_session(uid)
+                    if session:
+                        await db.save_session(
+                            uid,
+                            session.get("phone_number", ""),
+                            session.get("session_string", ""),
+                            tg_username=session.get("tg_username", ""),
+                            userbot_id=userbot_id,
+                        )
+                except Exception as e:
+                    logger.warning("[PURCHASE] update session userbot_id gagal uid=%s: %s", uid, e)
 
-    logger.info(
-        "[PURCHASE] success | user_id=%s | plan=%s | months=%s | "
-        "coins_before=%s | coins_deducted=%s | coins_after=%s | purchase_key=%s",
-        uid, plan_key, months, coins_before, total, coins_after, purchase_key,
-    )
+        started, expires = await db.create_subscription(uid, plan_key, months)
+        expires_str = expires.strftime("%d %b %Y")
+        started_str = started.strftime("%d %b %Y")
 
-    userbot_id = None
-    if context == "buy":
-        existing = await db.get_userbot(uid)
-        if existing:
-            userbot_id = existing.get("userbot_id")
+        if context == "buy" and userbot_id:
+            success = (
+                f"✅ *Secured! Userbot + Plan dah ready bro* 🎉\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                f"🤖 Userbot ID:\n`{userbot_id}`\n\n"
+                f"📦 Plan Selected: *{icon}*\n"
+                f"🗓️ Duration: *{months} bulan*\n"
+                f"🪙 Total: *{total:,} Syiling*\n"
+                f"📆 Mula: *{started_str}*\n"
+                f"📅 Tamat: *{expires_str}*\n\n"
+                "━━━━━━━━━━━━━━━\n"
+                "⚠️ *Save Userbot ID korang!*\n"
+                "_ID ni guna untuk recover kalau account kena limit/banned._\n\n"
+                "Next steps:\n"
+                "1️⃣ *📚 Buat Userbot* — connect Telegram account\n"
+                "2️⃣ *⚙️ Tetapan* — setup group & message\n"
+                "3️⃣ Tekan 🚀 *Start Promote!*"
+            )
+        elif context == "renew":
+            success = (
+                f"✅ *Plan activated, bot ready jalan auto!* 🔥\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                f"📦 Plan Selected: *{icon}*\n"
+                f"🗓️ Duration: *{months} bulan*\n"
+                f"🪙 Total: *{total:,} Syiling*\n"
+                f"📆 Mula: *{started_str}*\n"
+                f"📅 Tamat: *{expires_str}*\n\n"
+                "━━━━━━━━━━━━━━━\n"
+                "Bot dah ready. Setup group & message dekat *⚙️ Tetapan* pastu tekan 🚀 Promote! 💨"
+            )
         else:
-            userbot_id = await db.create_userbot(uid)
-            try:
-                session = await db.get_session(uid)
-                if session:
-                    await db.save_session(
-                        uid,
-                        session.get("phone_number", ""),
-                        session.get("session_string", ""),
-                        tg_username=session.get("tg_username", ""),
-                        userbot_id=userbot_id,
-                    )
-            except Exception as e:
-                logger.warning("plan_final: update session userbot_id gagal uid=%s: %s", uid, e)
+            success = (
+                f"✅ *Lets gooo! Pelan korang dah aktif* 🔥\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                f"📦 Plan Selected: *{icon}*\n"
+                f"🗓️ Duration: *{months} bulan*\n"
+                f"🪙 Total: *{total:,} Syiling*\n"
+                f"📆 Mula: *{started_str}*\n"
+                f"📅 Tamat: *{expires_str}*\n\n"
+                "━━━━━━━━━━━━━━━\n"
+                "Bot dah ready bro! Setup group & message dekat *⚙️ Tetapan* pastu tekan 🚀 Promote! 💨"
+            )
 
-    started, expires = await db.create_subscription(uid, plan_key, months)
-    expires_str = expires.strftime("%d %b %Y")
-    started_str = started.strftime("%d %b %Y")
+        await callback.message.edit_text(success, parse_mode="Markdown", reply_markup=back_to_menu_kb())
 
-    if context == "buy" and userbot_id:
-        success = (
-            f"✅ *Secured! Userbot + Plan dah ready bro* 🎉\n"
-            "━━━━━━━━━━━━━━━\n\n"
-            f"🤖 Userbot ID:\n`{userbot_id}`\n\n"
-            f"📦 Plan Selected: *{icon}*\n"
-            f"🗓️ Duration: *{months} bulan*\n"
-            f"🪙 Total: *{total:,} Syiling*\n"
-            f"📆 Mula: *{started_str}*\n"
-            f"📅 Tamat: *{expires_str}*\n\n"
-            "━━━━━━━━━━━━━━━\n"
-            "⚠️ *Save Userbot ID korang!*\n"
-            "_ID ni guna untuk recover kalau account kena limit/banned._\n\n"
-            "Next steps:\n"
-            "1️⃣ *📚 Buat Userbot* — connect Telegram account\n"
-            "2️⃣ *⚙️ Tetapan* — setup group & message\n"
-            "3️⃣ Tekan 🚀 *Start Promote!*"
+        if context in ("buy", "renew"):
+            await callback.message.answer("⚡ Back to Shop Zone:", reply_markup=kedai_menu_kb())
+
+    except Exception as exc:
+        processed_subscription_purchases.discard(purchase_key)
+        logger.exception(
+            "[PURCHASE] purchase_failed (exception) | user_id=%s | plan=%s | error=%s",
+            uid, plan_key, exc,
         )
-    elif context == "renew":
-        success = (
-            f"✅ *Plan activated, bot ready jalan auto!* 🔥\n"
-            "━━━━━━━━━━━━━━━\n\n"
-            f"📦 Plan Selected: *{icon}*\n"
-            f"🗓️ Duration: *{months} bulan*\n"
-            f"🪙 Total: *{total:,} Syiling*\n"
-            f"📆 Mula: *{started_str}*\n"
-            f"📅 Tamat: *{expires_str}*\n\n"
-            "━━━━━━━━━━━━━━━\n"
-            "Bot dah ready. Setup group & message dekat *⚙️ Tetapan* pastu tekan 🚀 Promote! 💨"
-        )
-    else:
-        success = (
-            f"✅ *Lets gooo! Pelan korang dah aktif* 🔥\n"
-            "━━━━━━━━━━━━━━━\n\n"
-            f"📦 Plan Selected: *{icon}*\n"
-            f"🗓️ Duration: *{months} bulan*\n"
-            f"🪙 Total: *{total:,} Syiling*\n"
-            f"📆 Mula: *{started_str}*\n"
-            f"📅 Tamat: *{expires_str}*\n\n"
-            "━━━━━━━━━━━━━━━\n"
-            "Bot dah ready bro! Setup group & message dekat *⚙️ Tetapan* pastu tekan 🚀 Promote! 💨"
-        )
+        try:
+            await callback.message.edit_text(
+                "⚠️ *Ralat semasa memproses purchase.*\n\nSila cuba lagi atau hubungi @berryrcr.",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
 
-    # Edit message — remove inline keyboard so Confirm button disappears
-    await callback.message.edit_text(success, parse_mode="Markdown", reply_markup=back_to_menu_kb())
-
-    if context in ("buy", "renew"):
-        await callback.message.answer("⚡ Back to Shop Zone:", reply_markup=kedai_menu_kb())
+    finally:
+        _active_purchases.discard(uid)

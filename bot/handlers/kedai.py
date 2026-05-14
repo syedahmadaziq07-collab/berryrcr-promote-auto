@@ -552,99 +552,141 @@ async def cb_buy_plan_select(callback: CallbackQuery):
 
 # ─────────────────────────────────────────────
 # 🛍 BELI USERBOT — Langkah 3: Konfirm → Proses Bayaran
+# In-memory lock: blocks double-tap / concurrent confirm
 # ─────────────────────────────────────────────
+_processing_buy_confirm: set[int] = set()
+
 
 @router.callback_query(F.data.startswith("buy_plan_confirm:"))
 async def cb_buy_plan_confirm(callback: CallbackQuery):
-    await callback.answer("⏳ Memproses...")
     uid      = callback.from_user.id
     plan_key = callback.data.split(":")[1].upper()
 
-    logger.info("buy_plan_confirm: uid=%s plan=%s — mula proses", uid, plan_key)
-
-    if plan_key not in COIN_PLANS:
-        await callback.message.edit_text(
-            "⚠️ Pelan tidak sah. Sila cuba lagi.",
-            reply_markup=None,
-        )
+    # ── Block duplicate/concurrent tap BEFORE answering ──
+    if uid in _processing_buy_confirm:
+        await callback.answer("⚠️ Purchase sedang diproses... sila tunggu.", show_alert=True)
+        logger.warning("[BUY_CONFIRM] duplicate_click_blocked | uid=%s", uid)
         return
 
-    plan = COIN_PLANS[plan_key]
-    total = plan["coins"]
+    # ── Dismiss spinner immediately ──
+    await callback.answer("⏳ Memproses...")
+    _processing_buy_confirm.add(uid)
 
-    # Semak lagi jika sudah ada userbot (elak double-tap)
-    existing = await db.get_userbot(uid)
-    if existing:
-        logger.warning("buy_plan_confirm: uid=%s sudah ada userbot — abaikan", uid)
-        await callback.message.edit_text(
-            f"⚠️ Anda sudah mempunyai userbot.\n\nID: `{existing['userbot_id']}`",
-            parse_mode="Markdown",
-        )
-        return
+    logger.info("[BUY_CONFIRM] purchase_started | uid=%s | plan=%s", uid, plan_key)
 
-    # Tolak syiling
-    logger.info("buy_plan_confirm: uid=%s deduct %d coins untuk %s", uid, total, plan_key)
-    ok = await db.deduct_coins(uid, total, f"Beli Userbot + Pelan {plan['name']}")
-    if not ok:
-        balance = await db.get_wallet(uid)
-        logger.warning("buy_plan_confirm: uid=%s baki tidak cukup — ada %d perlu %d", uid, balance, total)
-        await callback.message.edit_text(
-            f"⚠️ *Baki tak cukup!*\n\n"
-            f"Need: *{total:,} Syiling*\n"
-            f"Balance: *{balance:,} Syiling*\n\n"
-            "Reload dulu via 💳 Topup Syiling.",
-            parse_mode="Markdown",
-            reply_markup=None,
-        )
-        return
-
-    # Jana Userbot ID
-    logger.info("buy_plan_confirm: uid=%s jana userbot_id", uid)
-    userbot_id = await db.create_userbot(uid)
-    logger.info("buy_plan_confirm: uid=%s userbot_id=%s", uid, userbot_id)
-
-    # Aktifkan Pelan
-    logger.info("buy_plan_confirm: uid=%s aktifkan pelan %s", uid, plan_key)
-    await db.create_subscription(uid, plan_key)
-    logger.info("buy_plan_confirm: uid=%s subscription PLUS/PRO/PREMIUM aktif", uid)
-
-    # Kemaskini sessions.userbot_id jika session sudah wujud
     try:
-        session = await db.get_session(uid)
-        if session:
-            await db.save_session(
-                uid,
-                session.get("phone_number", ""),
-                session.get("session_string", ""),
-                tg_username=session.get("tg_username", ""),
-                userbot_id=userbot_id,
+        if plan_key not in COIN_PLANS:
+            await callback.message.edit_text(
+                "⚠️ Pelan tidak sah. Sila cuba lagi.",
+                reply_markup=None,
             )
-            logger.info("buy_plan_confirm: sessions.userbot_id dikemaskini uid=%s", uid)
-    except Exception as e:
-        logger.warning("buy_plan_confirm: update sessions.userbot_id gagal uid=%s: %s", uid, e)
+            return
 
-    logger.info("buy_plan_confirm: uid=%s BERJAYA — userbot_id=%s plan=%s", uid, userbot_id, plan_key)
+        plan  = COIN_PLANS[plan_key]
+        total = plan["coins"]
 
-    await callback.message.edit_text(
-        "✅ *Purchase Successful!*\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        f"🤖 Your Userbot ID:\n`{userbot_id}`\n\n"
-        f"📦 Active Plan: *{plan['name']}*\n\n"
-        "⚠️ *Save your Userbot ID!*\n"
-        "ID ni guna untuk pindah userbot kalau account korang limit/banned.\n\n"
-        "━━━━━━━━━━━━━━━\n"
-        "Next steps:\n"
-        "1️⃣ Tekan *📚 Buat Userbot* untuk connect Telegram account\n"
-        "2️⃣ Setup group & message dekat *⚙️ Tetapan*\n"
-        "3️⃣ Hit 🚀 Start Promote!",
-        parse_mode="Markdown",
-        reply_markup=None,
-    )
-    # Hantar keyboard reply semula
-    await callback.message.answer(
-        "⚡ You're back at Shop Zone:",
-        reply_markup=kedai_menu_kb(),
-    )
+        # Semak jika sudah ada userbot (elak double-tap yang lepas lock)
+        existing = await db.get_userbot(uid)
+        if existing:
+            logger.warning("[BUY_CONFIRM] duplicate_click_blocked (userbot exists) | uid=%s", uid)
+            await callback.message.edit_text(
+                f"⚠️ Anda sudah mempunyai userbot.\n\nID: `{existing['userbot_id']}`",
+                parse_mode="Markdown",
+                reply_markup=None,
+            )
+            return
+
+        # Semak baki dahulu
+        balance = await db.get_wallet(uid)
+        if balance < total:
+            logger.warning(
+                "[BUY_CONFIRM] purchase_failed (insufficient) | uid=%s | need=%d | have=%d",
+                uid, total, balance,
+            )
+            await callback.message.edit_text(
+                f"⚠️ *Baki tak cukup!*\n\n"
+                f"Need: *{total:,} Syiling*\n"
+                f"Balance: *{balance:,} Syiling*\n\n"
+                "Reload dulu via 💳 Topup Syiling.",
+                parse_mode="Markdown",
+                reply_markup=None,
+            )
+            return
+
+        # Tolak syiling
+        ok = await db.deduct_coins(uid, total, f"Beli Userbot + Pelan {plan['name']}")
+        if not ok:
+            balance_now = await db.get_wallet(uid)
+            logger.error(
+                "[BUY_CONFIRM] purchase_failed (deduct) | uid=%s | plan=%s | balance=%d",
+                uid, plan_key, balance_now,
+            )
+            await callback.message.edit_text(
+                f"❌ *Transaksi gagal!*\n\nBalance: *{balance_now:,} Syiling*\n\n"
+                "Sila cuba lagi atau hubungi @berryrcr.",
+                parse_mode="Markdown",
+                reply_markup=None,
+            )
+            return
+
+        # Jana Userbot ID
+        userbot_id = await db.create_userbot(uid)
+
+        # Aktifkan Pelan
+        await db.create_subscription(uid, plan_key)
+
+        # Kemaskini sessions.userbot_id jika session sudah wujud
+        try:
+            session = await db.get_session(uid)
+            if session:
+                await db.save_session(
+                    uid,
+                    session.get("phone_number", ""),
+                    session.get("session_string", ""),
+                    tg_username=session.get("tg_username", ""),
+                    userbot_id=userbot_id,
+                )
+        except Exception as e:
+            logger.warning("[BUY_CONFIRM] update session userbot_id gagal uid=%s: %s", uid, e)
+
+        logger.info(
+            "[BUY_CONFIRM] purchase_success | uid=%s | userbot_id=%s | plan=%s | deducted=%d",
+            uid, userbot_id, plan_key, total,
+        )
+
+        await callback.message.edit_text(
+            "✅ *Purchase Successful!*\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            f"🤖 Your Userbot ID:\n`{userbot_id}`\n\n"
+            f"📦 Active Plan: *{plan['name']}*\n\n"
+            "⚠️ *Save your Userbot ID!*\n"
+            "ID ni guna untuk pindah userbot kalau account korang limit/banned.\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            "Next steps:\n"
+            "1️⃣ Tekan *📚 Buat Userbot* untuk connect Telegram account\n"
+            "2️⃣ Setup group & message dekat *⚙️ Tetapan*\n"
+            "3️⃣ Hit 🚀 Start Promote!",
+            parse_mode="Markdown",
+            reply_markup=None,
+        )
+        await callback.message.answer(
+            "⚡ You're back at Shop Zone:",
+            reply_markup=kedai_menu_kb(),
+        )
+
+    except Exception as exc:
+        logger.exception("[BUY_CONFIRM] purchase_failed (exception) | uid=%s | error=%s", uid, exc)
+        try:
+            await callback.message.edit_text(
+                "⚠️ *Ralat semasa memproses purchase.*\n\nSila cuba lagi atau hubungi @berryrcr.",
+                parse_mode="Markdown",
+                reply_markup=None,
+            )
+        except Exception:
+            pass
+
+    finally:
+        _processing_buy_confirm.discard(uid)
 
 
 # ─────────────────────────────────────────────
