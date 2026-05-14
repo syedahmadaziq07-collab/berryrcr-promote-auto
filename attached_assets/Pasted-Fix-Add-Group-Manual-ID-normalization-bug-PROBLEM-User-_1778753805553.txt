@@ -1,0 +1,230 @@
+Fix "Add Group Manual" ID normalization bug.
+
+PROBLEM:
+User inputs Telegram supergroup ID: -1001156883698
+Userbot has already joined this group.
+It's a normal supergroup (not channel).
+User can manually send messages in the group.
+But bot replies: "❌ Kumpulan tidak dijumpai."
+
+ROOT CAUSE:
+Code compares raw Telegram ID (-1001156883698) with Telethon entity.id directly.
+Telethon uses internal ID format without -100 prefix for supergroups.
+
+Example mismatch:
+- Telegram ID: -1001156883698
+- Telethon entity.id: 1156883698
+- They don't match → "not found"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. FIND THE HANDLER:
+   Locate the "Add Group Manual" handler where user inputs group ID.
+   Common patterns:
+   - Handler name: add_group_manual / manual_group_id / waiting_group_id
+   - FSM state: something like GroupStates.waiting_manual_id
+   - User sends group ID → bot validates → saves or shows error
+
+2. TELEGRAM ID FORMAT REFERENCE:
+
+   Format types:
+   - Personal chat: 123456789 (positive integer)
+   - Bot: 987654321 (positive integer)
+   - Group (legacy): -123456789 (negative, no prefix)
+   - Supergroup: -1001234567890 (negative with -100 prefix)
+   - Channel: -1001234567890 (same as supergroup)
+   - Broadcast channel: -1001234567890
+   
+   Telethon internal format:
+   - Supergroup/Channel: 1234567890 (removes -100 prefix, positive)
+   - Group (legacy): -123456789 (keeps negative)
+   - Personal: 123456789 (unchanged)
+
+3. CREATE HELPER FUNCTION: bot/utils/id_normalizer.py
+
+```python
+   def normalize_telegram_id(user_input: str | int) -> tuple[int, int]:
+       """
+       Normalize Telegram ID to both formats.
+       
+       Args:
+           user_input: Raw ID from user (-1001156883698 or "https://t.me/...")
+       
+       Returns:
+           (telegram_id, telethon_id)
+           
+       Examples:
+           Input: -1001156883698
+           Output: (-1001156883698, 1156883698)
+           
+           Input: -123456789 (legacy group)
+           Output: (-123456789, -123456789)
+           
+           Input: 987654321 (user/bot)
+           Output: (987654321, 987654321)
+       """
+       # Implementation:
+       # 1. Parse string to int (handle t.me links if needed)
+       # 2. If starts with -100 → remove prefix for telethon_id
+       # 3. If negative without -100 → keep as is (legacy group)
+       # 4. If positive → keep as is (user/bot)
+       # 5. Return both formats
+```
+
+4. UPDATE ADD GROUP MANUAL HANDLER:
+
+   Current logic (WRONG):
+```python
+   user_input_id = int(message.text)  # e.g. -1001156883698
+   
+   # Scan dialogs
+   async for dialog in client.iter_dialogs():
+       if dialog.id == user_input_id:  # ❌ NEVER MATCHES
+           # save group
+   
+   # Not found
+   await message.reply("❌ Kumpulan tidak dijumpai.")
+```
+   
+   Fixed logic (CORRECT):
+```python
+   from bot.utils.id_normalizer import normalize_telegram_id
+   
+   telegram_id, telethon_id = normalize_telegram_id(message.text)
+   
+   found = None
+   async for dialog in client.iter_dialogs():
+       # Compare with BOTH formats
+       if dialog.id == telegram_id or dialog.id == telethon_id:
+           found = dialog
+           break
+   
+   if found:
+       # Save using TELEGRAM format (the one user sees)
+       await save_group(user_id, telegram_id, found.title)
+       await message.reply(f"✅ Berjaya tambah: {found.title}")
+   else:
+       await message.reply("❌ Kumpulan tidak dijumpai atau bot belum join.")
+```
+
+5. STORAGE FORMAT:
+
+   Always save Telegram-format ID (-1001156883698) to database:
+   - This is what users see in Telegram
+   - This is what works with bot.send_message()
+   - Consistent with how Telegram displays IDs
+   
+   Convert to Telethon format only when comparing with dialogs.
+
+6. VALIDATION IMPROVEMENTS:
+
+   Add checks:
+   - Is the ID valid format?
+   - Is it a group/supergroup/channel? (not user/bot)
+   - Has userbot joined this group?
+   - Does userbot have permission to send messages?
+   
+   Error messages:
+   - "❌ Format ID tidak sah. Contoh: -1001234567890"
+   - "❌ ID ini bukan group/channel."
+   - "❌ Userbot belum join group ini."
+   - "❌ Userbot tidak ada permission untuk hantar mesej."
+
+7. TESTING CASES:
+
+   Test with these IDs:
+   - Supergroup: -1001156883698 → should work ✅
+   - Legacy group: -123456789 → should work ✅
+   - Channel: -1001234567890 → should work ✅
+   - User ID: 987654321 → should reject ❌
+   - Invalid: "abc123" → should reject ❌
+
+8. LOGGING:
+
+   Add debug logs:
+   - [GROUP_ADD] user_input={raw} telegram_id={telegram_id} telethon_id={telethon_id}
+   - [GROUP_ADD] scanning dialogs...
+   - [GROUP_ADD] found match: dialog.id={dialog.id} title={title}
+   - [GROUP_ADD] no match found
+   - [GROUP_ADD] saved: {telegram_id} → {title}
+
+9. FILES TO MODIFY:
+
+   Likely files (find and update):
+   - bot/handlers/userbot.py (or similar - where Add Group flow lives)
+   - bot/utils/ (create id_normalizer.py)
+   - bot/database.py (verify save_group uses correct format)
+
+10. SAFETY RULES:
+
+    ✅ DO:
+    - Normalize IDs before comparison
+    - Save Telegram-format IDs to database
+    - Add validation and clear error messages
+    - Log the normalization process
+    - Test with real group IDs
+    
+    ❌ DON'T:
+    - Don't modify topup/subscription/OTP/promote logic
+    - Don't break existing group additions
+    - Don't change database schema
+    - Don't touch payment flows
+    - Don't modify session handling
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXPECTED BEHAVIOR AFTER FIX
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Before fix:
+User: -1001156883698
+Bot: ❌ Kumpulan tidak dijumpai.
+
+After fix:
+User: -1001156883698
+Bot: ✅ Berjaya tambah: My Awesome Group
+
+Test cases:
+- Supergroup ID with -100 prefix → ✅ Works
+- Legacy group ID negative only → ✅ Works
+- Channel ID → ✅ Works
+- User/bot ID → ❌ Rejected with clear error
+- Userbot not in group → ❌ Clear error message
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPLEMENTATION STEPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Create bot/utils/id_normalizer.py with normalize_telegram_id()
+2. Find Add Group Manual handler
+3. Import and use normalizer
+4. Update comparison logic to check both ID formats
+5. Add validation (is it a group? has userbot joined?)
+6. Improve error messages
+7. Add debug logging
+8. Test with real group IDs
+9. Restart bot
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Show only:
+- Files created: bot/utils/id_normalizer.py
+- Files modified: (list handlers updated)
+- Key changes summary per file
+- Test results with sample IDs
+- Bot restart confirmation
+
+Don't show:
+- Full file contents
+- Unrelated code
+- Other handlers
+- Database migrations (not needed)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+START IMPLEMENTATION NOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create ID normalizer utility and fix Add Group Manual handler to properly compare Telegram IDs with Telethon dialog IDs. Focus on the ID format mismatch between -100 prefix formats.

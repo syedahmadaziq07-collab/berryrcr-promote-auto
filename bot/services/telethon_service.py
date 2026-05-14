@@ -12,6 +12,7 @@ from telethon.errors import (
     PhoneNumberBannedError, UserRestrictedError,
 )
 from config import API_ID, API_HASH
+from utils.id_normalizer import normalize_telegram_id, telethon_to_telegram, is_group_id
 
 logger = logging.getLogger(__name__)
 
@@ -125,15 +126,22 @@ async def build_peer(client: TelegramClient, group_id: str, target_type: str, ac
                 logger.warning("[PEER] Gagal resolve @%s: %s — cuba cara lain", clean, e)
 
     # ── Kaedah 2: InputPeer + access_hash ──
+    # group_id mungkin dalam format Telegram (-1001234567890) atau Telethon (1234567890)
+    # InputPeerChannel memerlukan Telethon internal ID (positif, tanpa -100 prefix)
     if access_hash:
         try:
             ah = int(access_hash)
-            gid_int = int(group_id)
-            if target_type in ("channel", "supergroup"):
-                peer = InputPeerChannel(gid_int, ah)
+            raw_gid = str(group_id).strip()
+            if raw_gid.startswith("-100") and len(raw_gid) > 4:
+                # Telegram format → strip -100 untuk dapat Telethon internal ID
+                telethon_gid = int(raw_gid[4:])
             else:
-                peer = InputPeerChat(gid_int)
-            logger.info("[PEER] Resolved via InputPeer (type=%s id=%s)", target_type, group_id)
+                telethon_gid = int(raw_gid)
+            if target_type in ("channel", "supergroup"):
+                peer = InputPeerChannel(telethon_gid, ah)
+            else:
+                peer = InputPeerChat(abs(telethon_gid))
+            logger.info("[PEER] Resolved via InputPeer (type=%s id=%s telethon_id=%s)", target_type, group_id, telethon_gid)
             return peer
         except Exception as e:
             logger.warning("[PEER] Gagal bina InputPeer (type=%s id=%s): %s", target_type, group_id, e)
@@ -143,7 +151,10 @@ async def build_peer(client: TelegramClient, group_id: str, target_type: str, ac
         "[PEER] Tiada username/access_hash untuk id=%s type=%s — guna raw int (mungkin gagal utk channel)",
         group_id, target_type,
     )
-    return int(group_id)
+    raw_gid = str(group_id).strip()
+    if raw_gid.startswith("-100") and len(raw_gid) > 4:
+        return int(raw_gid[4:])
+    return int(raw_gid)
 
 
 async def send_message_to_group(session_string: str, group_id: int, message: str) -> bool:
@@ -196,35 +207,69 @@ async def check_account_health(session_string: str) -> str:
 async def resolve_entity(session_string: str, identifier: str) -> dict | None:
     """
     Sahkan dan dapatkan maklumat kumpulan/saluran menggunakan ID atau username.
-    Pulangkan dict {id, title, username, target_type, access_hash} atau None jika tidak dijumpai.
+    Pulangkan dict {id, title, username, target_type, access_hash} atau None.
+
+    'id' dalam dict dikembalikan dalam format Telegram penuh (-1001234567890)
+    supaya konsisten dengan apa yang pengguna nampak dan sesuai untuk bot.send_message().
     """
     if not session_string:
         return None
     client = await create_client_from_session(session_string)
     try:
         raw = identifier.strip()
-        if raw.lstrip("-").isdigit():
-            # ID — boleh jadi positif (Telethon) atau negatif (Bot API format)
-            raw_int = int(raw)
-            # Tukar format Bot API (-100xxxxxxxxx) → Telethon positif ID
-            if raw_int < -1000000000000:
-                raw_int = int(str(abs(raw_int))[3:])  # buang prefix -100
-            target = raw_int
+        is_numeric = raw.lstrip("-").isdigit()
+
+        if is_numeric:
+            telegram_id, telethon_id = normalize_telegram_id(raw)
+            logger.info(
+                "[GROUP_ADD] user_input=%s telegram_id=%s telethon_id=%s",
+                raw, telegram_id, telethon_id,
+            )
+            # Validate: reject user/bot IDs (must be negative)
+            if telegram_id > 0:
+                logger.warning("[GROUP_ADD] ID positif ditolak (bukan group): %s", raw)
+                return None
+            target = telethon_id
         else:
+            telegram_id = None
+            telethon_id = None
             target = raw.lstrip("@")
 
-        entity = await client.get_entity(target)
+        # ── Kaedah 1: get_entity terus (pantas jika dalam cache) ──
+        entity = None
+        try:
+            entity = await client.get_entity(target)
+        except Exception as e:
+            logger.warning("[GROUP_ADD] get_entity(%s) gagal: %s — cuba imbas dialogs", target, e)
+
+        # ── Kaedah 2: imbas dialogs dan bandingkan kedua-dua format ID ──
+        if entity is None and is_numeric:
+            logger.info("[GROUP_ADD] scanning dialogs untuk telegram_id=%s telethon_id=%s", telegram_id, telethon_id)
+            async for dialog in client.iter_dialogs():
+                d_id = dialog.entity.id
+                if d_id == telegram_id or d_id == telethon_id:
+                    logger.info("[GROUP_ADD] found match: dialog.id=%s title=%s", d_id, dialog.name)
+                    entity = dialog.entity
+                    break
+
+        if entity is None:
+            logger.info("[GROUP_ADD] no match found for identifier=%s", identifier)
+            return None
+
         access_hash = getattr(entity, "access_hash", None)
         username = getattr(entity, "username", None)
         ttype = _entity_type(entity)
 
+        # Pulangkan ID dalam format Telegram penuh (-100xxxxxxxxxx untuk supergroup/channel)
+        full_telegram_id = telethon_to_telegram(entity.id, ttype) if telegram_id is None else telegram_id
+
         logger.info(
-            "resolve_entity OK: id=%s title=%s type=%s username=%s",
-            entity.id, getattr(entity, "title", "?"), ttype, username,
+            "[GROUP_ADD] resolve_entity OK: telegram_id=%s telethon_id=%s title=%s type=%s",
+            full_telegram_id, entity.id, getattr(entity, "title", "?"), ttype,
         )
         return {
-            "id": entity.id,
-            "title": getattr(entity, "title", str(entity.id)),
+            "id": full_telegram_id,
+            "title": getattr(entity, "title", str(full_telegram_id)),
             "username": username,
             "target_type": ttype,
             "access_hash": access_hash,

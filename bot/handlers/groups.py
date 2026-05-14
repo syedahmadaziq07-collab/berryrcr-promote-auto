@@ -169,13 +169,40 @@ async def process_add_group_manual(message: Message, state: FSMContext):
         )
         return
 
+    # ── Validate format sebelum panggil Telethon ──
+    is_numeric = raw.lstrip("-").isdigit()
+    if is_numeric:
+        try:
+            raw_int = int(raw)
+        except ValueError:
+            await message.answer(
+                "❌ *Format ID tidak sah.*\n\nContoh: `-1001234567890` atau `@namagrup`",
+                parse_mode="Markdown",
+                reply_markup=back_to_menu_kb(),
+            )
+            return
+        if raw_int > 0:
+            await message.answer(
+                "❌ *ID ini bukan group/channel.*\n\n"
+                "ID kumpulan mestilah nombor negatif.\n"
+                "Contoh: `-1001234567890`",
+                parse_mode="Markdown",
+                reply_markup=back_to_menu_kb(),
+            )
+            return
+
+    logger.info("[GROUP_ADD] uid=%s raw_input=%s", uid, raw)
+
     wait = await message.answer("⏳ Menyahkan kumpulan...")
     try:
         entity = await resolve_entity(session["session_string"], raw)
         if not entity:
             await wait.edit_text(
                 "❌ *Kumpulan tidak dijumpai.*\n\n"
-                "Pastikan ID atau username betul dan userbot sudah menyertai kumpulan tersebut.",
+                "Kemungkinan sebab:\n"
+                "• ID atau username tidak betul\n"
+                "• Userbot belum menyertai kumpulan ini\n\n"
+                "_Sila pastikan userbot sudah join kumpulan tersebut._",
                 parse_mode="Markdown",
                 reply_markup=back_to_menu_kb(),
             )
