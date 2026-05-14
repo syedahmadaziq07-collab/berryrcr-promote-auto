@@ -18,10 +18,31 @@ def _rm(coins: int) -> str:
 
 
 async def _show_wallet(uid: int) -> str:
+    from datetime import datetime, timezone, timedelta
+    _MY_TZ = timezone(timedelta(hours=8))
+
     balance      = await db.get_wallet(uid)
     sub          = await db.get_active_subscription(uid)
-    plan_name    = sub["plan"] if sub else "Tiada"
     transactions = await db.get_transactions(uid, limit=5)
+
+    if sub:
+        plan_name = sub.get("plan", "Tiada")
+        exp = sub.get("expires_at")
+        if exp:
+            try:
+                if hasattr(exp, "strftime"):
+                    exp_dt = exp.astimezone(_MY_TZ)
+                else:
+                    exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00")).astimezone(_MY_TZ)
+                days_left = (exp_dt.date() - datetime.now(_MY_TZ).date()).days
+                exp_str = exp_dt.strftime("%d %b %Y")
+                plan_line = f"📋 Pelan Aktif: *{plan_name}* — tamat {exp_str} ({days_left}h lagi)"
+            except Exception:
+                plan_line = f"📋 Pelan Aktif: *{plan_name}*"
+        else:
+            plan_line = f"📋 Pelan Aktif: *{plan_name}*"
+    else:
+        plan_line = "📋 Pelan Aktif: *Tiada*"
 
     tx_lines = ""
     for t in transactions:
@@ -35,7 +56,7 @@ async def _show_wallet(uid: int) -> str:
         "━━━━━━━━━━━━━━━\n\n"
         f"💰 Baki Semasa: *{balance:,} Syiling*\n"
         f"💵 Nilai Setara: *{_rm(balance)}*\n"
-        f"📋 Pelan Aktif: *{plan_name}*\n\n"
+        f"{plan_line}\n\n"
         f"📜 *5 Transaksi Terkini:*{tx_lines}"
     )
 

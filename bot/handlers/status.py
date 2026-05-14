@@ -89,20 +89,32 @@ async def _build_status_text(uid: int) -> str:
     email_label = email if email else "Not Set"
 
     # ── Subscription expiry ──
-    expired_str = "No Active Plan"
+    from datetime import datetime, timezone, timedelta
+    _MY_TZ = timezone(timedelta(hours=8))
+
+    plan_str    = "No Active Plan"
+    expired_str = "—"
+    days_left_str = ""
+
     if sub:
-        exp = sub.get("expired_at")
+        plan_str = sub.get("plan", "—")
+        exp = sub.get("expires_at")
         if exp:
             try:
                 if hasattr(exp, "strftime"):
-                    expired_str = exp.strftime("%H:%M, %d %b %Y")
+                    exp_dt = exp.astimezone(_MY_TZ)
                 else:
-                    from datetime import datetime
-                    dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
-                    local = dt.astimezone()
-                    expired_str = local.strftime("%H:%M, %d %b %Y")
+                    exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00")).astimezone(_MY_TZ)
+                expired_str = exp_dt.strftime("%d %b %Y")
+                days_left = (exp_dt.date() - datetime.now(_MY_TZ).date()).days
+                if days_left > 0:
+                    days_left_str = f" ({days_left} days left)"
+                elif days_left == 0:
+                    days_left_str = " (expires today!)"
+                else:
+                    days_left_str = " (expired)"
             except Exception:
-                expired_str = str(exp)
+                expired_str = str(exp)[:10]
 
     return (
         f"🪪 *STATUS ACCOUNT*\n"
@@ -120,7 +132,8 @@ async def _build_status_text(uid: int) -> str:
         f"🦾 Mode Sekarang: {mode_label}\n"
         f"🛡️ Safe Mode: ON\n"
         f"🚦 Status Bot: {bot_status}\n"
-        f"⏳ Expired On: {expired_str}\n"
+        f"💎 Plan: {plan_str}\n"
+        f"⏳ Expired On: {expired_str}{days_left_str}\n"
         f"📣 Notification: {notif_label}\n"
         f"📩 Backup Email: {email_label}\n"
         f"🧑‍💻 Admin Backup: 0\n"

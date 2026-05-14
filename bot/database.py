@@ -196,22 +196,39 @@ async def transfer_coins(from_id: int, to_id: int, amount: int, description: str
 async def get_active_subscription(user_id: int):
     """
     Dapatkan pelan aktif user.
-    Resilient: Cuba filter by active=True dulu; jika column tiada, ambil rekod terbaru sahaja.
+    Checks active=True AND expires_at > now (truly not expired).
+    Fallback to active=True only if expires_at column missing.
+    Returns None if no active, non-expired subscription found.
     """
+    from datetime import datetime
     client = await get_client()
+    now_iso = datetime.now(_MY_TZ).isoformat()
     try:
         res = (
             await client.table("subscriptions")
             .select("*")
             .eq("user_id", user_id)
             .eq("active", True)
-            .order("created_at", desc=True)
+            .gt("expires_at", now_iso)
+            .order("expires_at", desc=True)
             .limit(1)
             .execute()
         )
-        return res.data[0] if res.data else None
+        if res.data:
+            return res.data[0]
+        # No valid unexpired sub — check if there's one without expires_at (old schema)
+        res2 = (
+            await client.table("subscriptions")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("active", True)
+            .is_("expires_at", "null")
+            .limit(1)
+            .execute()
+        )
+        return res2.data[0] if res2.data else None
     except Exception as e:
-        # Column 'active' atau 'created_at' mungkin tidak wujud — fallback ke rekod terbaru
+        # Column 'active', 'expires_at', or 'created_at' missing — fallback
         logger.warning("get_active_subscription fallback (schema lama) uid=%s: %s", user_id, e)
         try:
             res = (
