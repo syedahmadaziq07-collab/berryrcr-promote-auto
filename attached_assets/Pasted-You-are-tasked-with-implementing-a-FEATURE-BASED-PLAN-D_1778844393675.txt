@@ -1,0 +1,183 @@
+You are tasked with implementing a FEATURE-BASED PLAN DIFFERENTIATION for a Telegram auto-promote bot running on Northflank. This is a production system requiring careful audit before any modifications.
+
+🎯 BUSINESS CONTEXT:
+Currently, PLUS and PRO plans have almost identical features. We need to differentiate them based on saved promote message limits:
+
+💎 PLUS Plan → Maximum 3 saved promote messages
+🚀 PRO Plan → Unlimited saved promote messages (rotate messages)
+
+📋 AUDIT PHASE (DO NOT MODIFY ANYTHING YET):
+
+**1. Saved Message System Discovery**
+   - Locate the database table storing saved promote messages
+   - Identify all fields: user_id, message_content, message_type, created_at, etc.
+   - Document the relationship between users and their saved messages
+   - Find how messages are currently created, edited, deleted, and rotated
+
+**2. Message Management Flow Analysis**
+   Trace the complete flow for:
+   - Creating/adding new saved messages (handler, function, file path, line numbers)
+   - Editing existing saved messages
+   - Deleting saved messages
+   - Rotating between messages during promotion
+   - Listing/viewing saved messages
+   
+   For each flow, provide:
+   - Entry point (command/callback)
+   - File path
+   - Function name
+   - Line numbers
+   - Current validation logic (if any)
+
+**3. Plan Detection System**
+   - How does the bot currently determine user's plan (PLUS vs PRO)?
+   - Which function/query checks active subscription?
+   - File path and function name for plan checking
+   - Does it check `subscriptions.plan` field or another method?
+   - Are there any existing feature flags based on plan type?
+
+**4. Current Message Limits**
+   - Are there ANY existing limits on saved messages?
+   - If yes, what are they and where are they enforced?
+   - If no, document that unlimited is currently the default
+
+**5. Impact Analysis**
+   Query or estimate:
+   - How many PLUS users currently have saved messages?
+   - How many PLUS users have MORE than 3 saved messages already?
+   - How many PRO users have saved messages?
+   - Total saved messages in the database
+
+**DELIVERABLE #1: AUDIT REPORT**
+
+Provide a structured report:
+🔍 SAVED MESSAGE SYSTEM AUDIT REPORT
+
+Database Schema
+[Table name, fields, relationships]
+Message Management Handlers
+[Create, Edit, Delete, Rotate flows with file paths and line numbers]
+Plan Detection Logic
+[How PLUS vs PRO is determined, file path, function]
+Current Limits
+[Existing validation or "none"]
+Impact Assessment
+[User statistics, affected users]
+Files Requiring Modification
+[List of files that will need changes]
+
+
+---
+
+📋 IMPLEMENTATION PHASE (AFTER AUDIT APPROVAL):
+
+**CRITICAL CONSTRAINTS:**
+- ❌ DO NOT touch topup/payment/coin purchase flows
+- ❌ DO NOT modify login/authentication flows
+- ❌ DO NOT change scheduler or promotion engine logic
+- ❌ DO NOT delete any existing saved messages
+- ✅ ONLY implement limit enforcement on message creation
+- ✅ Preserve all existing PRO user privileges
+- ✅ Grandfather existing PLUS users (keep their messages, block new ones)
+
+**IMPLEMENTATION REQUIREMENTS:**
+
+**1. Add Plan-Based Message Limit Check**
+   Location: Message creation handler (identified in audit)
+   
+   Logic:
+```python
+   # Pseudocode - adapt to actual codebase
+   def before_create_message(user_id, new_message):
+       plan = get_user_plan(user_id)  # Returns 'PLUS', 'PRO', etc.
+       
+       if plan == 'PRO':
+           # Unlimited - allow creation
+           logger.info(f"[MESSAGE_LIMIT] unlimited_access_granted | user_id={user_id} | plan=PRO")
+           return True
+       
+       elif plan == 'PLUS':
+           current_count = count_saved_messages(user_id)
+           
+           if current_count >= 3:
+               logger.warning(f"[MESSAGE_LIMIT] message_limit_hit | user_id={user_id} | plan=PLUS | current={current_count} | limit=3")
+               # Show upgrade prompt (see error message spec below)
+               return False
+           
+           logger.info(f"[MESSAGE_LIMIT] plan_limit_checked | user_id={user_id} | plan=PLUS | current={current_count} | limit=3")
+           return True
+       
+       else:
+           # No active plan or other cases
+           return False
+```
+
+**2. Error Message Specification**
+   When PLUS user hits the 3-message limit, show:
+⚠️ Plan PLUS support maximum 3 saved messages sahaja.
+Upgrade ke 🚀 PRO untuk unlock unlimited rotate messages 🔥
+/setupplan — Upgrade now
+   
+   Style: Bilingual (BM + English Gen-Z), friendly but clear
+
+**3. Grandfather Clause for Existing Users**
+   - PLUS users who already have >3 messages BEFORE this update:
+     • Keep all existing messages (DO NOT DELETE)
+     • Block creation of NEW messages
+     • Show the same upgrade prompt when attempting to add more
+   
+   - PRO users:
+     • No changes, unlimited remains unlimited
+
+**4. Logging Requirements**
+   Add structured logs at these checkpoints:
+   
+```python
+   # When PRO user creates message
+   logger.info("[MESSAGE_LIMIT] unlimited_access_granted | user_id=X | plan=PRO")
+   
+   # When PLUS user creates message (under limit)
+   logger.info("[MESSAGE_LIMIT] plan_limit_checked | user_id=X | plan=PLUS | current=2 | limit=3 | allowed=True")
+   
+   # When PLUS user hits limit
+   logger.warning("[MESSAGE_LIMIT] message_limit_hit | user_id=X | plan=PLUS | current=3 | limit=3 | action=blocked")
+```
+
+**5. Code Changes Summary**
+   After implementation, provide:
+   - List of modified files (file path only)
+   - Brief description of what changed in each file
+   - NO full code dumps unless requested
+
+**6. Restart Bot**
+   After all changes are applied and verified:
+   - Restart the bot process
+   - Confirm successful restart
+   - Check logs for any errors
+
+---
+
+**TESTING CHECKLIST (Before Deployment):**
+
+Simulate these scenarios (or provide test plan):
+- [ ] PLUS user with 0 messages creates 3 messages → should succeed
+- [ ] PLUS user with 3 messages tries to create 4th → should block with upgrade prompt
+- [ ] PLUS user with 5 messages (from before update) tries to create new one → should block
+- [ ] PRO user with 10 messages creates 11th → should succeed
+- [ ] User with no plan tries to create message → should block (existing behavior)
+
+---
+
+**FINAL DELIVERABLES:**
+
+After implementation:
+1. ✅ Audit report (Phase 1)
+2. ✅ List of modified files with brief change descriptions
+3. ✅ Confirmation that existing messages are preserved
+4. ✅ Confirmation that logging is in place
+5. ✅ Bot restart confirmation
+6. ✅ Test plan or test results
+
+---
+
+**START WITH PHASE 1: AUDIT ONLY. Do not modify any code until the audit report is complete and approved.**
