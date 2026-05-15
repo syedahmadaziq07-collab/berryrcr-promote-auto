@@ -13,6 +13,7 @@ import database as db
 from config import ADMIN_ID, USERBOT_PRICE, WEBSITE_URL, COIN_PLANS
 from keyboards import (
     kedai_menu_kb,
+    buy_userbot_lifetime_kb,
     beli_userbot_plans_kb,
     tambah_bulan_plans_kb,
     beli_userbot_confirm_kb,
@@ -481,15 +482,16 @@ async def msg_beli_userbot(message: Message, state: FSMContext):
     logger.info("beli_userbot: open menu uid=%s has_userbot=%s", uid, bool(userbot_rec))
 
     if userbot_rec:
-        ub_id  = userbot_rec.get("userbot_id", "")
-        sub    = await db.get_active_subscription(uid)
-        plan   = sub["plan"] if sub else "None"
+        ub_id = userbot_rec.get("userbot_id", "")
+        sub   = await db.get_active_subscription(uid)
+        plan  = sub["plan"] if sub else "Tiada"
         await message.answer(
             "🤖 *You Already Have a Userbot*\n\n"
             f"🆔 Userbot ID: `{ub_id}`\n"
             f"📦 Active Plan: *{plan}*\n\n"
             "One account, one userbot je.\n"
-            "Guna menu *📚 Buat Userbot* untuk manage userbot korang.",
+            "Guna menu *📚 Buat Userbot* untuk manage userbot korang.\n"
+            "Nak aktifkan plan? Guna *🛠️ Setup Month & Plan*.",
             parse_mode="Markdown",
             reply_markup=kedai_menu_kb(),
         )
@@ -497,177 +499,83 @@ async def msg_beli_userbot(message: Message, state: FSMContext):
 
     balance = await db.get_wallet(uid)
     text = (
-        "🛍 *Pilih Plan Korang*\n"
+        "🛍 *Beli Userbot*\n"
         "━━━━━━━━━━━━━━━\n\n"
         f"💰 Balance korang: *{balance:,} Syiling*\n\n"
-        "⚡ *PLUS — 300 Syiling / bulan*\n"
-        "• Auto promote group pilihan\n"
-        "• Footer wajib @berryrcr\n"
-        "• 📩 Backup Email & Recovery Notice\n"
-        "• 🔑 Recover Token\n\n"
-        "👑 *PRO — 600 Syiling / bulan*\n"
-        "• Semua feature PLUS, ditambah:\n"
-        "• Boleh tutup footer\n"
-        "• Lower delay limit\n"
-        "• Lebih slot group/channel\n"
-        "• Smart rotate & Advanced Mode\n"
-        "• Priority support"
+        "🤖 *Userbot — 300 Syiling (Lifetime)*\n\n"
+        "✅ 1 slot userbot kekal\n"
+        "✅ Tiada expiry date\n"
+        "✅ Bayar sekali, milik selamanya\n"
+        "✅ Boleh sambung akaun Telegram sendiri\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "💡 _Nak auto promote? Aktifkan PLUS/PRO berasingan_\n"
+        "_via 🛠️ Setup Month & Plan selepas beli userbot._"
     )
-    await message.answer(text, parse_mode="Markdown", reply_markup=beli_userbot_plans_kb())
+    await message.answer(text, parse_mode="Markdown", reply_markup=buy_userbot_lifetime_kb())
 
 
 # ─────────────────────────────────────────────
-# 🛍 BELI USERBOT — Langkah 2: Pilih Pelan → Pilih Tempoh
-# ─────────────────────────────────────────────
-
-_PLAN_ICON = {"PLUS": "⭐ PLUS", "PRO": "👑 PRO", "PREMIUM": "💎 PREMIUM"}
-_PLAN_COINS = {"PLUS": 300, "PRO": 600, "PREMIUM": 1000}
-
-@router.callback_query(F.data.startswith("buy_plan_select:"))
-async def cb_buy_plan_select(callback: CallbackQuery):
-    await callback.answer()
-    plan_key = callback.data.split(":")[1].upper()
-
-    logger.info("buy_plan_select: uid=%s plan=%s", callback.from_user.id, plan_key)
-
-    if plan_key not in COIN_PLANS:
-        await callback.answer("⚠️ Pelan tidak sah.", show_alert=True)
-        return
-
-    icon            = _PLAN_ICON.get(plan_key, plan_key)
-    coins_per_month = _PLAN_COINS.get(plan_key, 300)
-
-    text = (
-        f"🗓️ *Pilih Tempoh*\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        f"Plan: *{icon}*\n"
-        f"Rate: *{coins_per_month:,} Syiling / bulan*\n\n"
-        "Berapa bulan korang nak aktifkan? 👇"
-    )
-    await callback.message.edit_text(
-        text, parse_mode="Markdown",
-        reply_markup=plan_duration_kb(plan_key, "buy"),
-    )
-
-
-# ─────────────────────────────────────────────
-# 🛍 BELI USERBOT — Langkah 3: Konfirm → Proses Bayaran
+# 🛍 BELI USERBOT — Confirm: Proses Bayaran (Lifetime, no plan)
 # In-memory lock: blocks double-tap / concurrent confirm
 # ─────────────────────────────────────────────
 _processing_buy_confirm: set[int] = set()
 
 
-@router.callback_query(F.data.startswith("buy_plan_confirm:"))
-async def cb_buy_plan_confirm(callback: CallbackQuery):
-    uid      = callback.from_user.id
-    plan_key = callback.data.split(":")[1].upper()
+@router.callback_query(F.data == "buy_userbot_lifetime_confirm")
+async def cb_buy_userbot_lifetime_confirm(callback: CallbackQuery):
+    uid = callback.from_user.id
 
-    # ── Block duplicate/concurrent tap BEFORE answering ──
     if uid in _processing_buy_confirm:
         await callback.answer("⚠️ Purchase sedang diproses... sila tunggu.", show_alert=True)
-        logger.warning("[BUY_CONFIRM] duplicate_click_blocked | uid=%s", uid)
+        logger.warning("[BUY_USERBOT] duplicate_click_blocked | uid=%s", uid)
         return
 
-    # ── Dismiss spinner immediately ──
     await callback.answer("⏳ Memproses...")
     _processing_buy_confirm.add(uid)
 
-    logger.info("[BUY_CONFIRM] purchase_started | uid=%s | plan=%s", uid, plan_key)
+    logger.info("[BUY_USERBOT] purchase_started | uid=%s", uid)
 
     try:
-        if plan_key not in COIN_PLANS:
-            await callback.message.edit_text(
-                "⚠️ Pelan tidak sah. Sila cuba lagi.",
-                reply_markup=None,
-            )
-            return
+        success, userbot_id = await db.buy_userbot_only(uid)
 
-        plan  = COIN_PLANS[plan_key]
-        total = plan["coins"]
-
-        # Semak jika sudah ada userbot (elak double-tap yang lepas lock)
-        existing = await db.get_userbot(uid)
-        if existing:
-            logger.warning("[BUY_CONFIRM] duplicate_click_blocked (userbot exists) | uid=%s", uid)
-            await callback.message.edit_text(
-                f"⚠️ Anda sudah mempunyai userbot.\n\nID: `{existing['userbot_id']}`",
-                parse_mode="Markdown",
-                reply_markup=None,
-            )
-            return
-
-        # Semak baki dahulu
-        balance = await db.get_wallet(uid)
-        if balance < total:
-            logger.warning(
-                "[BUY_CONFIRM] purchase_failed (insufficient) | uid=%s | need=%d | have=%d",
-                uid, total, balance,
-            )
-            await callback.message.edit_text(
-                f"⚠️ *Baki tak cukup!*\n\n"
-                f"Need: *{total:,} Syiling*\n"
-                f"Balance: *{balance:,} Syiling*\n\n"
-                "Reload dulu via 💳 Topup Syiling.",
-                parse_mode="Markdown",
-                reply_markup=None,
-            )
-            return
-
-        # Tolak syiling
-        ok = await db.deduct_coins(uid, total, f"Beli Userbot + Pelan {plan['name']}")
-        if not ok:
-            balance_now = await db.get_wallet(uid)
-            logger.error(
-                "[BUY_CONFIRM] purchase_failed (deduct) | uid=%s | plan=%s | balance=%d",
-                uid, plan_key, balance_now,
-            )
-            await callback.message.edit_text(
-                f"❌ *Transaksi gagal!*\n\nBalance: *{balance_now:,} Syiling*\n\n"
-                "Sila cuba lagi atau hubungi @berryrcr.",
-                parse_mode="Markdown",
-                reply_markup=None,
-            )
-            return
-
-        # Jana Userbot ID
-        userbot_id = await db.create_userbot(uid)
-
-        # Aktifkan Pelan
-        await db.create_subscription(uid, plan_key)
-
-        # Kemaskini sessions.userbot_id jika session sudah wujud
-        try:
-            session = await db.get_session(uid)
-            if session:
-                await db.save_session(
-                    uid,
-                    session.get("phone_number", ""),
-                    session.get("session_string", ""),
-                    tg_username=session.get("tg_username", ""),
-                    userbot_id=userbot_id,
+        if not success:
+            if userbot_id:
+                logger.warning("[BUY_USERBOT] already_has_userbot | uid=%s | ub=%s", uid, userbot_id)
+                await callback.message.edit_text(
+                    f"⚠️ *Anda sudah ada userbot.*\n\n"
+                    f"🆔 Userbot ID: `{userbot_id}`\n\n"
+                    "Guna *📚 Buat Userbot* untuk manage userbot korang.",
+                    parse_mode="Markdown",
                 )
-        except Exception as e:
-            logger.warning("[BUY_CONFIRM] update session userbot_id gagal uid=%s: %s", uid, e)
+            else:
+                balance = await db.get_wallet(uid)
+                logger.warning("[BUY_USERBOT] insufficient | uid=%s | balance=%d", uid, balance)
+                await callback.message.edit_text(
+                    f"❌ *Baki tidak cukup!*\n\n"
+                    f"Need: *300 Syiling*\n"
+                    f"Balance: *{balance:,} Syiling*\n\n"
+                    "Reload dulu via 💳 Reload Syiling.",
+                    parse_mode="Markdown",
+                )
+            return
 
-        logger.info(
-            "[BUY_CONFIRM] purchase_success | uid=%s | userbot_id=%s | plan=%s | deducted=%d",
-            uid, userbot_id, plan_key, total,
-        )
+        logger.info("[BUY_USERBOT] purchase_success | uid=%s | userbot_id=%s", uid, userbot_id)
 
         await callback.message.edit_text(
-            "✅ *Purchase Successful!*\n"
+            "✅ *Userbot Berjaya Dibeli!*\n"
             "━━━━━━━━━━━━━━━\n\n"
-            f"🤖 Your Userbot ID:\n`{userbot_id}`\n\n"
-            f"📦 Active Plan: *{plan['name']}*\n\n"
-            "⚠️ *Save your Userbot ID!*\n"
-            "ID ni guna untuk pindah userbot kalau account korang limit/banned.\n\n"
+            f"🤖 Userbot ID:\n`{userbot_id}`\n\n"
+            "🔑 *Lifetime* — tiada expiry date\n"
+            "🪙 *300 Syiling* ditolak dari wallet\n\n"
             "━━━━━━━━━━━━━━━\n"
+            "⚠️ *Simpan Userbot ID korang!*\n"
+            "_Gunakan untuk recover akses jika akaun kena limit/banned._\n\n"
             "Next steps:\n"
-            "1️⃣ Tekan *📚 Buat Userbot* untuk connect Telegram account\n"
-            "2️⃣ Setup group & message dekat *⚙️ Tetapan*\n"
-            "3️⃣ Hit 🚀 Start Promote!",
+            "1️⃣ *📚 Buat Userbot* — connect akaun Telegram\n"
+            "2️⃣ *🛠️ Setup Month & Plan* — aktifkan PLUS/PRO\n"
+            "3️⃣ *⚙️ Control Panel* — setup group & mesej\n"
+            "4️⃣ Tekan 🚀 Start Promote!",
             parse_mode="Markdown",
-            reply_markup=None,
         )
         await callback.message.answer(
             "⚡ You're back at Shop Zone:",
@@ -675,12 +583,11 @@ async def cb_buy_plan_confirm(callback: CallbackQuery):
         )
 
     except Exception as exc:
-        logger.exception("[BUY_CONFIRM] purchase_failed (exception) | uid=%s | error=%s", uid, exc)
+        logger.exception("[BUY_USERBOT] purchase_failed (exception) | uid=%s | error=%s", uid, exc)
         try:
             await callback.message.edit_text(
                 "⚠️ *Ralat semasa memproses purchase.*\n\nSila cuba lagi atau hubungi @berryrcr.",
                 parse_mode="Markdown",
-                reply_markup=None,
             )
         except Exception:
             pass
@@ -710,25 +617,21 @@ async def cb_beli_userbot_back(callback: CallbackQuery):
     await callback.answer()
     uid     = callback.from_user.id
     balance = await db.get_wallet(uid)
-    logger.info("beli_userbot_back: uid=%s kembali ke senarai pelan", uid)
+    logger.info("beli_userbot_back: uid=%s kembali ke tawaran userbot", uid)
     text = (
-        "🛍 *Pilih Plan Korang*\n"
+        "🛍 *Beli Userbot*\n"
         "━━━━━━━━━━━━━━━\n\n"
         f"💰 Balance korang: *{balance:,} Syiling*\n\n"
-        "⚡ *PLUS — 300 Syiling / bulan*\n"
-        "• Auto promote group pilihan\n"
-        "• Footer wajib @berryrcr\n"
-        "• 📩 Backup Email & Recovery Notice\n"
-        "• 🔑 Recover Token\n\n"
-        "👑 *PRO — 600 Syiling / bulan*\n"
-        "• Semua feature PLUS, ditambah:\n"
-        "• Boleh tutup footer\n"
-        "• Lower delay limit\n"
-        "• Lebih slot group/channel\n"
-        "• Smart rotate & Advanced Mode\n"
-        "• Priority support"
+        "🤖 *Userbot — 300 Syiling (Lifetime)*\n\n"
+        "✅ 1 slot userbot kekal\n"
+        "✅ Tiada expiry date\n"
+        "✅ Bayar sekali, milik selamanya\n"
+        "✅ Boleh sambung akaun Telegram sendiri\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "💡 _Nak auto promote? Aktifkan PLUS/PRO berasingan_\n"
+        "_via 🛠️ Setup Month & Plan selepas beli userbot._"
     )
-    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=beli_userbot_plans_kb())
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=buy_userbot_lifetime_kb())
 
 
 # ─────────────────────────────────────────────

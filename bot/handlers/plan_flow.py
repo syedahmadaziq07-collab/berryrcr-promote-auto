@@ -212,29 +212,7 @@ async def cb_plan_final(callback: CallbackQuery):
             )
             return
 
-        # ── LANGKAH 1: Buat userbot jika perlu (context=buy) ──
-        # Dilakukan sebelum deduct supaya jika gagal, tiada coins ditolak.
-        userbot_id = None
-        if context == "buy":
-            existing = await db.get_userbot(uid)
-            if existing:
-                userbot_id = existing.get("userbot_id")
-            else:
-                userbot_id = await db.create_userbot(uid)
-                try:
-                    session = await db.get_session(uid)
-                    if session:
-                        await db.save_session(
-                            uid,
-                            session.get("phone_number", ""),
-                            session.get("session_string", ""),
-                            tg_username=session.get("tg_username", ""),
-                            userbot_id=userbot_id,
-                        )
-                except Exception as e:
-                    logger.warning("[PURCHASE] update session userbot_id gagal uid=%s: %s", uid, e)
-
-        # ── LANGKAH 2: Cipta subscription DAHULU ──
+        # ── LANGKAH 1: Cipta subscription DAHULU ──
         # Jika gagal → exception → caught oleh outer except → coins TIDAK ditolak.
         started, expires = await db.create_subscription(uid, plan_key, months)
 
@@ -313,25 +291,7 @@ async def cb_plan_final(callback: CallbackQuery):
         expires_str = expires.strftime("%d %b %Y")
         started_str = started.strftime("%d %b %Y")
 
-        if context == "buy" and userbot_id:
-            success = (
-                f"✅ *Secured! Userbot + Plan dah ready bro* 🎉\n"
-                "━━━━━━━━━━━━━━━\n\n"
-                f"🤖 Userbot ID:\n`{userbot_id}`\n\n"
-                f"📦 Plan Selected: *{icon}*\n"
-                f"🗓️ Duration: *{months} bulan*\n"
-                f"🪙 Total: *{total:,} Syiling*\n"
-                f"📆 Mula: *{started_str}*\n"
-                f"📅 Tamat: *{expires_str}*\n\n"
-                "━━━━━━━━━━━━━━━\n"
-                "⚠️ *Save Userbot ID korang!*\n"
-                "_ID ni guna untuk recover kalau account kena limit/banned._\n\n"
-                "Next steps:\n"
-                "1️⃣ *📚 Buat Userbot* — connect Telegram account\n"
-                "2️⃣ *⚙️ Tetapan* — setup group & message\n"
-                "3️⃣ Tekan 🚀 *Start Promote!*"
-            )
-        elif context == "renew":
+        if context == "renew":
             success = (
                 f"✅ *Plan activated, bot ready jalan auto!* 🔥\n"
                 "━━━━━━━━━━━━━━━\n\n"

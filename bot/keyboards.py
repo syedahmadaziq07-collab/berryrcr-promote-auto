@@ -60,6 +60,16 @@ def topup_packages_reply_kb() -> ReplyKeyboardMarkup:
 # BELI USERBOT — Pilih Pelan (Inline)
 # ─────────────────────────────────────────────
 
+def buy_userbot_lifetime_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="✅ Confirm — Beli Userbot (300 Syiling)",
+            callback_data="buy_userbot_lifetime_confirm",
+        )],
+        [InlineKeyboardButton(text="❌ Batal", callback_data="beli_userbot_cancel")],
+    ])
+
+
 def beli_userbot_plans_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(

@@ -387,6 +387,42 @@ def _generate_userbot_id(user_id: int) -> str:
     return f"UB-{user_id}-{suffix}"
 
 
+_USERBOT_PRICE = 300
+
+
+async def buy_userbot_only(user_id: int) -> tuple[bool, str | None]:
+    """
+    Beli userbot sahaja — 300 syiling flat, lifetime, TIADA subscription dicipta.
+    Returns (success, userbot_id).
+    Jika user sudah ada userbot, returns (False, existing_userbot_id).
+    """
+    existing = await get_userbot(user_id)
+    if existing:
+        logger.warning("buy_userbot_only: uid=%s sudah ada userbot %s", user_id, existing.get("userbot_id"))
+        return False, existing.get("userbot_id")
+
+    balance = await get_wallet(user_id)
+    if balance < _USERBOT_PRICE:
+        logger.info("buy_userbot_only: uid=%s baki tidak cukup (%d < %d)", user_id, balance, _USERBOT_PRICE)
+        return False, None
+
+    userbot_id = await create_userbot(user_id)
+    logger.info("buy_userbot_only: uid=%s userbot_id=%s dicipta", user_id, userbot_id)
+
+    ok = await deduct_coins(user_id, _USERBOT_PRICE, "Beli Userbot (Lifetime)")
+    if not ok:
+        client = await get_client()
+        try:
+            await client.table("userbots").delete().eq("owner_id", user_id).eq("userbot_id", userbot_id).execute()
+            logger.warning("buy_userbot_only: rollback userbot uid=%s sebab deduct gagal", user_id)
+        except Exception as rb_err:
+            logger.error("buy_userbot_only: rollback gagal uid=%s: %s", user_id, rb_err)
+        return False, None
+
+    logger.info("buy_userbot_only: SUCCESS uid=%s userbot_id=%s deducted=%d", user_id, userbot_id, _USERBOT_PRICE)
+    return True, userbot_id
+
+
 async def create_userbot(user_id: int) -> str:
     client = await get_client()
     existing = await get_userbot(user_id)
