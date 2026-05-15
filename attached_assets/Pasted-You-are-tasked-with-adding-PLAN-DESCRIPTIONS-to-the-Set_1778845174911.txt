@@ -1,0 +1,122 @@
+You are tasked with adding PLAN DESCRIPTIONS to the "Setup Month & Plan" menu in a Telegram auto-promote bot. This is a UI/UX improvement — NO changes to subscription logic, payment processing, or scheduler.
+
+🎯 OBJECTIVE:
+When users open "🛠️ Setup Month & Plan" or select a plan (PLUS/PRO), display clear feature descriptions to help them choose the right plan.
+
+📋 IMPLEMENTATION REQUIREMENTS:
+
+**1. Locate Plan Selection Flow**
+   Find the handler that shows PLUS/PRO plan options:
+   - Likely in `bot/handlers/subscription.py` or `bot/handlers/plan_flow.py`
+   - Look for functions that display plan selection keyboard
+   - Find where "Setup Month & Plan" button leads to
+
+**2. Add Plan Descriptions**
+   Insert this description text when showing plan options:
+💎 PLAN PLUS
+Perfect untuk normal daily promote 🔥
+• Max 3 saved promote message
+• Basic auto promote system
+• Standard safe mode protection
+• Smooth untuk casual seller
+• Easy & simple setup
+━━━━━━━━━━━━━━━
+🚀 PLAN PRO
+Built untuk serious seller & heavy promote ⚡
+• Unlimited rotate message
+• Smarter auto promote system
+• Better anti-flood & safe mode
+• More stable untuk banyak group
+• Faster & cleaner promote performance
+• Future premium feature unlock 🔥
+
+**3. Where to Display**
+   Add description in these locations:
+   
+   **Location A: Plan Selection Menu**
+   When user clicks "🛠️ Setup Month & Plan":
+   - Show description above or below the PLUS/PRO buttons
+   - Keep existing keyboard buttons unchanged
+   
+   **Location B: Duration Selection (Optional)**
+   When user selects PLUS or PRO:
+   - Show selected plan's description before duration options
+   - Helps confirm their choice
+
+**4. Message Formatting**
+   - Use `parse_mode='HTML'` or `parse_mode='Markdown'` for proper formatting
+   - Test that bullets (•) and emoji render correctly on mobile
+   - Ensure line breaks display cleanly
+   - Keep message under Telegram's 4096 character limit (current text is ~450 chars, safe)
+
+**5. Preserve Existing Flow**
+   - ❌ DO NOT change callback_data values
+   - ❌ DO NOT modify button text or order
+   - ❌ DO NOT touch subscription creation logic
+   - ❌ DO NOT modify payment/coin deduction
+   - ❌ DO NOT change duration selection (1-12 months)
+   - ✅ ONLY add descriptive text to help users decide
+
+**CRITICAL CONSTRAINTS:**
+- This is UI text ONLY
+- No logic changes
+- No database changes
+- No scheduler changes
+- No price changes
+- Just better explanation of what each plan offers
+
+**EXAMPLE IMPLEMENTATION PSEUDOCODE:**
+
+```python
+async def show_plan_selection(message):
+    description = (
+        "💎 PLAN PLUS\n"
+        "Perfect untuk normal daily promote 🔥\n"
+        "• Max 3 saved promote message\n"
+        "• Basic auto promote system\n"
+        "• Standard safe mode protection\n"
+        "• Smooth untuk casual seller\n"
+        "• Easy & simple setup\n\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        "🚀 PLAN PRO\n"
+        "Built untuk serious seller & heavy promote ⚡\n"
+        "• Unlimited rotate message\n"
+        "• Smarter auto promote system\n"
+        "• Better anti-flood & safe mode\n"
+        "• More stable untuk banyak group\n"
+        "• Faster & cleaner promote performance\n"
+        "• Future premium feature unlock 🔥\n\n"
+        "Pilih plan yang sesuai untuk bisnes kau:"
+    )
+    
+    # Existing keyboard code stays the same
+    keyboard = plan_selection_keyboard()  # Your existing function
+    
+    await message.answer(description, reply_markup=keyboard)
+```
+
+**LANGUAGE STYLE:**
+- Bilingual: Bahasa Melayu + English Gen-Z
+- Casual but informative
+- Emoji for visual appeal
+- Bullets (•) for readability
+- Mobile-friendly formatting
+
+**FILES TO MODIFY:**
+- Likely 1 file only: `bot/handlers/subscription.py` or `bot/handlers/plan_flow.py`
+- Whichever file contains the plan selection menu handler
+
+**DELIVERABLE:**
+After implementation, show:
+1. ✅ Which file(s) were modified
+2. ✅ Which function(s) had description added
+3. ✅ Confirmation that existing buttons/callbacks are unchanged
+4. ✅ Screenshot or text preview of how it looks (if possible)
+
+**START NOW:**
+1. Find the plan selection handler
+2. Add the description text
+3. Test that formatting displays correctly
+4. Confirm buttons still work as before
+
+DO NOT modify anything outside of UI text display.

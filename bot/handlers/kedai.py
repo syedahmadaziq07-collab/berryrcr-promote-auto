@@ -897,11 +897,28 @@ async def msg_tambah_bulan(message: Message, state: FSMContext):
             status_line = "📦 Plan Semasa: *Tiada*\n\n"
 
         text = (
-            "⏳ *Tambah Bulan*\n"
+            "🛠️ *Setup Month & Plan*\n"
             "━━━━━━━━━━━━━━━\n\n"
             f"{status_line}"
             f"💰 Wallet: *{balance:,} Syiling*\n\n"
-            "Pilih plan yang korang nak aktifkan:"
+            "💎 *PLAN PLUS — 300 Syiling / bulan*\n"
+            "Perfect untuk normal daily promote 🔥\n"
+            "• Max 3 saved promote message\n"
+            "• Basic auto promote system\n"
+            "• Standard safe mode protection\n"
+            "• Smooth untuk casual seller\n"
+            "• Easy & simple setup\n\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            "🚀 *PLAN PRO — 600 Syiling / bulan*\n"
+            "Built untuk serious seller & heavy promote ⚡\n"
+            "• Unlimited rotate message\n"
+            "• Smarter auto promote system\n"
+            "• Better anti-flood & safe mode\n"
+            "• More stable untuk banyak group\n"
+            "• Faster & cleaner promote performance\n"
+            "• Future premium feature unlock 🔥\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            "Pilih plan yang sesuai untuk bisnes kau 👇"
         )
         await message.answer(text, parse_mode="Markdown", reply_markup=tambah_bulan_plans_kb())
 
