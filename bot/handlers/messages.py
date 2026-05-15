@@ -74,9 +74,13 @@ async def cb_bcast_menu(callback: CallbackQuery, state: FSMContext):
     uid      = callback.from_user.id
     ub_id    = await _get_userbot_id(uid)
     count    = await db.count_broadcast_messages(ub_id) if ub_id else 0
+    sub      = await db.get_active_subscription(uid)
+    plan     = sub["plan"].upper() if sub else None
+    limit    = _plan_limit(plan)
+    limit_display = str(limit) if limit else "∞"
     await callback.message.edit_text(
         "📋 *Senarai Mesej Sebarkan*\n\n"
-        f"Jumlah mesej: *{count}/10*\n\n"
+        f"Jumlah mesej: *{count}/{limit_display}*\n\n"
         "Urus mesej yang akan dihantar secara bergilir-gilir:",
         parse_mode="Markdown",
         reply_markup=_messages_menu_kb(),
@@ -133,6 +137,21 @@ async def cb_bcast_view(callback: CallbackQuery):
 # ➕ Tambah Mesej
 # ─────────────────────────────────────────────
 
+_PLUS_MSG_LIMIT = 3
+_UPGRADE_PROMPT = (
+    "⚠️ Plan PLUS support maximum 3 saved messages sahaja.\n\n"
+    "Upgrade ke 🚀 PRO untuk unlock unlimited rotate messages 🔥\n\n"
+    "/setupplan — Upgrade now"
+)
+
+
+def _plan_limit(plan: str | None) -> int | None:
+    """Returns message limit for plan. None = unlimited."""
+    if plan == "PLUS":
+        return _PLUS_MSG_LIMIT
+    return None
+
+
 @router.callback_query(F.data == "bcast_add")
 async def cb_bcast_add(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -143,14 +162,37 @@ async def cb_bcast_add(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⚠️ Sila sambung akaun dahulu!", show_alert=True)
         return
 
+    sub   = await db.get_active_subscription(uid)
+    plan  = sub["plan"].upper() if sub else None
     count = await db.count_broadcast_messages(ub_id)
-    if count >= 10:
-        await callback.answer("⚠️ Had maksimum 10 mesej telah dicapai!", show_alert=True)
+    limit = _plan_limit(plan)
+
+    if plan == "PRO":
+        logger.info(
+            "[MESSAGE_LIMIT] unlimited_access_granted | user_id=%s | plan=PRO | current=%d",
+            uid, count,
+        )
+    elif plan == "PLUS":
+        if count >= _PLUS_MSG_LIMIT:
+            logger.warning(
+                "[MESSAGE_LIMIT] message_limit_hit | user_id=%s | plan=PLUS | current=%d | limit=%d | action=blocked",
+                uid, count, _PLUS_MSG_LIMIT,
+            )
+            await callback.answer(_UPGRADE_PROMPT, show_alert=True)
+            return
+        logger.info(
+            "[MESSAGE_LIMIT] plan_limit_checked | user_id=%s | plan=PLUS | current=%d | limit=%d | allowed=True",
+            uid, count, _PLUS_MSG_LIMIT,
+        )
+    else:
+        logger.info("[MESSAGE_LIMIT] no_active_plan | user_id=%s | action=blocked", uid)
+        await callback.answer("⚠️ Tiada pelan aktif. Sila aktifkan PLUS/PRO dahulu!", show_alert=True)
         return
 
+    limit_display = str(limit) if limit else "∞"
     await callback.message.edit_text(
         f"➕ *Tambah Mesej Sebarkan*\n\n"
-        f"Mesej semasa: *{count}/10*\n\n"
+        f"Mesej semasa: *{count}/{limit_display}*\n\n"
         "Hantar mesej yang ingin ditambah.\n"
         "Sokong: teks, gambar, atau video.",
         parse_mode="Markdown",
@@ -169,6 +211,33 @@ async def process_new_message(message: Message, state: FSMContext):
 
     if not ub_id:
         await message.answer("⚠️ Ralat: Userbot ID tidak dijumpai.", reply_markup=back_to_menu_kb())
+        return
+
+    # ── Backup plan-limit guard (jika user bypass cb_bcast_add somehow) ──
+    sub   = await db.get_active_subscription(uid)
+    plan  = sub["plan"].upper() if sub else None
+    count = await db.count_broadcast_messages(ub_id)
+    limit = _plan_limit(plan)
+
+    if plan == "PLUS" and count >= _PLUS_MSG_LIMIT:
+        logger.warning(
+            "[MESSAGE_LIMIT] message_limit_hit (backup guard) | user_id=%s | plan=PLUS | current=%d | limit=%d | action=blocked",
+            uid, count, _PLUS_MSG_LIMIT,
+        )
+        await message.answer(
+            _UPGRADE_PROMPT,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Kembali", callback_data="bcast_menu")]
+            ]),
+        )
+        return
+
+    if plan not in ("PLUS", "PRO"):
+        logger.info("[MESSAGE_LIMIT] no_active_plan (backup guard) | user_id=%s | action=blocked", uid)
+        await message.answer(
+            "⚠️ Tiada pelan aktif. Sila aktifkan PLUS/PRO dahulu!",
+            reply_markup=back_to_menu_kb(),
+        )
         return
 
     try:
@@ -195,9 +264,14 @@ async def process_new_message(message: Message, state: FSMContext):
 
         added = await db.add_broadcast_message(ub_id, uid, content_type, text_content, file_id)
         if added:
-            count = await db.count_broadcast_messages(ub_id)
+            new_count     = await db.count_broadcast_messages(ub_id)
+            limit_display = str(limit) if limit else "∞"
+            logger.info(
+                "[MESSAGE_LIMIT] message_added | user_id=%s | plan=%s | new_count=%d | limit=%s",
+                uid, plan, new_count, limit_display,
+            )
             await message.answer(
-                f"✅ *Mesej berjaya ditambah!*\n\nJumlah mesej: *{count}/10*",
+                f"✅ *Mesej berjaya ditambah!*\n\nJumlah mesej: *{new_count}/{limit_display}*",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📋 Lihat Senarai", callback_data="bcast_menu")],
@@ -206,7 +280,7 @@ async def process_new_message(message: Message, state: FSMContext):
             )
         else:
             await message.answer(
-                "⚠️ Had 10 mesej telah dicapai atau ralat berlaku.",
+                _UPGRADE_PROMPT if plan == "PLUS" else "⚠️ Had mesej telah dicapai atau ralat berlaku.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🔙 Kembali", callback_data="bcast_menu")]
                 ]),

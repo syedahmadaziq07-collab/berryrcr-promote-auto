@@ -1242,6 +1242,9 @@ async def count_broadcast_messages(userbot_id: str) -> int:
         return 0
 
 
+_PLUS_MSG_LIMIT = 3
+
+
 async def add_broadcast_message(
     userbot_id: str, user_id: int,
     content_type: str, text_content: str = None, file_id: str = None
@@ -1249,8 +1252,29 @@ async def add_broadcast_message(
     try:
         client = await get_client()
         count = await count_broadcast_messages(userbot_id)
-        if count >= 10:
-            return False
+
+        # Plan-aware limit (Option B: PLUS=3, PRO=unlimited)
+        sub  = await get_active_subscription(user_id)
+        plan = sub["plan"].upper() if sub else None
+
+        if plan == "PLUS":
+            if count >= _PLUS_MSG_LIMIT:
+                logger.warning(
+                    "add_broadcast_message blocked: PLUS limit | uid=%s | ub=%s | count=%d | limit=%d",
+                    user_id, userbot_id, count, _PLUS_MSG_LIMIT,
+                )
+                return False
+        elif plan == "PRO":
+            pass  # True unlimited — no cap
+        else:
+            # No active plan or unknown plan — fallback safety cap
+            if count >= 10:
+                logger.warning(
+                    "add_broadcast_message blocked: fallback cap | uid=%s | ub=%s | count=%d",
+                    user_id, userbot_id, count,
+                )
+                return False
+
         await client.table("broadcast_messages").insert({
             "userbot_id": userbot_id,
             "user_id": user_id,
