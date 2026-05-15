@@ -9,7 +9,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import database as db
-from keyboards import back_to_menu_kb
+from keyboards import back_to_menu_kb, schedule_preset_kb
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -115,11 +115,66 @@ async def cb_schedule_menu(callback: CallbackQuery, state: FSMContext):
 # Tetapkan Jadual
 # ─────────────────────────────────────────────
 
+_PRESETS = {
+    "24jam": ("00:00", "23:59", "🟢 24 Jam Running",  "Bot aktif sepanjang masa"),
+    "peak":  ("20:00", "00:30", "🔥 Peak Hour",        "20:00 – 00:30 (overnight)"),
+    "night": ("22:00", "02:00", "🌙 Night Seller",     "22:00 – 02:00 (overnight)"),
+    "day":   ("09:00", "17:00", "☀️ Day Time",          "09:00 – 17:00"),
+}
+
+
 @router.callback_query(F.data == "schedule_set")
 async def cb_schedule_set(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    await state.clear()
     await callback.message.edit_text(
-        "✏️ *Edit Schedule — Start Time*\n\n"
+        "⏰ *Edit Schedule*\n\n"
+        "Pilih preset atau set masa custom:",
+        parse_mode="Markdown",
+        reply_markup=schedule_preset_kb(),
+    )
+
+
+@router.callback_query(F.data.startswith("schedule_preset_"))
+async def cb_schedule_preset(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    preset_key = callback.data.replace("schedule_preset_", "")
+    preset = _PRESETS.get(preset_key)
+    if not preset:
+        await callback.answer("⚠️ Preset tidak dikenali.", show_alert=True)
+        return
+
+    mula, tamat, label, desc = preset
+    uid   = callback.from_user.id
+    ub_id = await _get_userbot_id(uid)
+    if not ub_id:
+        await callback.answer("⚠️ Userbot not found.", show_alert=True)
+        return
+
+    ok = await db.set_schedule(ub_id, uid, mula, tamat)
+    if ok:
+        await callback.message.edit_text(
+            f"✅ *JADUAL DISIMPAN*\n\n"
+            f"{label}\n"
+            f"⏰ Start : *{mula}*\n"
+            f"⏰ End   : *{tamat}*\n"
+            f"🌍 Timezone: Asia/Kuala\\_Lumpur\n\n"
+            f"_{desc}_",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏰ View Schedule", callback_data="schedule_menu")],
+                [InlineKeyboardButton(text="⬅️ Back",          callback_data="main_menu")],
+            ]),
+        )
+    else:
+        await callback.answer("❌ Failed to save. Try again.", show_alert=True)
+
+
+@router.callback_query(F.data == "schedule_custom")
+async def cb_schedule_custom(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.edit_text(
+        "✏️ *Custom Schedule — Start Time*\n\n"
         "Send your start time in *HH:MM* format.\n\n"
         "Example: `09:00` for 9am",
         parse_mode="Markdown",

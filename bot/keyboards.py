@@ -376,3 +376,14 @@ def request_phone_kb() -> ReplyKeyboardMarkup:
 
 def remove_kb() -> ReplyKeyboardRemove:
     return ReplyKeyboardRemove()
+
+
+def schedule_preset_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🟢 24 Jam Running",  callback_data="schedule_preset_24jam")],
+        [InlineKeyboardButton(text="🔥 Peak Hour (20:00–00:30)",   callback_data="schedule_preset_peak")],
+        [InlineKeyboardButton(text="🌙 Night Seller (22:00–02:00)", callback_data="schedule_preset_night")],
+        [InlineKeyboardButton(text="☀️ Day Time (09:00–17:00)",     callback_data="schedule_preset_day")],
+        [InlineKeyboardButton(text="✏️ Custom Time",    callback_data="schedule_custom")],
+        [InlineKeyboardButton(text="❌ Cancel",          callback_data="schedule_menu")],
+    ])

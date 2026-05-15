@@ -1,0 +1,120 @@
+Helper function for checking active status:
+   def is_schedule_active(start: str, end: str) -> bool:
+       """
+       Check if current time is within schedule.
+       Handles overnight ranges (e.g. 20:00 - 02:00).
+       
+       Args:
+           start: "HH:MM"
+           end: "HH:MM"
+       
+       Returns:
+           True if bot should be active now
+       """
+       from datetime import datetime
+       import pytz
+       
+       tz = pytz.timezone('Asia/Kuala_Lumpur')
+       now = datetime.now(tz)
+       current = now.strftime("%H:%M")
+       
+       if end < start:
+           # Overnight (crosses midnight)
+           # Active if: current >= start OR current <= end
+           return current >= start or current <= end
+       else:
+           # Same day
+           # Active if: start <= current <= end
+           return start <= current <= end
+
+9. SUCCESS MESSAGE FORMAT:
+
+   After saving preset:
+✅ JADUAL DISIMPAN
+🟢 24 Jam Running
+⏰ Start: 00:00
+⏰ End: 23:59
+Bot aktif sepanjang masa
+   
+   After saving custom:
+✅ JADUAL DISIMPAN
+✏️ Custom Schedule
+⏰ Start: 14:30
+⏰ End: 22:00
+Timezone: Asia/Kuala_Lumpur
+
+10. TESTING CASES:
+
+    Test all presets:
+    - [ ] 24 Jam Running → saves correctly
+    - [ ] Peak Hour (overnight) → saves correctly
+    - [ ] Night Seller (overnight) → saves correctly
+    - [ ] Day Time → saves correctly
+    - [ ] Custom Time → existing flow still works
+    
+    Test overnight logic:
+    - [ ] 20:00 - 00:30 at 21:00 → active ✅
+    - [ ] 20:00 - 00:30 at 00:15 → active ✅
+    - [ ] 20:00 - 00:30 at 10:00 → inactive ❌
+
+11. SAFETY RULES:
+
+    ✅ DO:
+    - Add preset menu before custom input
+    - Keep existing custom time flow intact
+    - Save times in HH:MM format
+    - Handle overnight ranges correctly
+    - Use Asia/Kuala_Lumpur timezone
+    
+    ❌ DON'T:
+    - Don't modify promote engine logic
+    - Don't break existing schedule functionality
+    - Don't change topup/OTP/subscription flows
+    - Don't modify database schema unnecessarily
+    - Don't touch promote message sending logic
+
+12. FILES TO MODIFY:
+
+    Likely files:
+    - bot/handlers/schedule.py (or similar - Active Schedule handler)
+    - bot/keyboards.py (add preset keyboard)
+    - bot/database.py (add save_schedule if missing)
+    - bot/utils/schedule_helper.py (create if needed - for is_schedule_active)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VISUAL FLOW DIAGRAM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Current flow:
+User → ✏️ Edit Schedule → "Type HH:MM" → Save
+
+New flow:
+User → ✏️ Edit Schedule → Preset Menu
+                              ├─ 🟢 24 Jam → Save ✅
+                              ├─ 🔥 Peak Hour → Save ✅
+                              ├─ 🌙 Night Seller → Save ✅
+                              ├─ ☀️ Day Time → Save ✅
+                              └─ ✏️ Custom → "Type HH:MM" → Save ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Show only:
+- Files created/modified
+- Preset configurations added
+- Key changes per file
+- Test results for overnight ranges
+- Bot restart confirmation
+
+Don't show:
+- Full file contents
+- Unrelated handlers
+- Other features
+- Promote engine code
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+START IMPLEMENTATION NOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add schedule preset buttons to Active Schedule feature. Create preset menu with 4 time presets + custom option. Keep existing manual input flow intact. Handle overnight time ranges correctly with Asia/Kuala_Lumpur timezone.
