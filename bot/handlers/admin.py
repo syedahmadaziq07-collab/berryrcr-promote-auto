@@ -823,6 +823,95 @@ async def cmd_test_email_backup(message: Message):
 
 
 # ──────────────────────────────────────────────────────────────
+# /test_backup_email <user_id> — test hantar confirmation email
+# ──────────────────────────────────────────────────────────────
+
+@router.message(Command("test_backup_email"))
+@admin_only
+async def cmd_test_backup_email(message: Message):
+    from services.email_service import send_confirmation_email, smtp_status
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip().lstrip("-").isdigit():
+        await message.answer(
+            "⚠️ Format salah.\n\n"
+            "Guna: `/test_backup_email <telegram_user_id>`\n"
+            "Contoh: `/test_backup_email 123456789`",
+            parse_mode="Markdown",
+        )
+        return
+
+    target_id = int(parts[1].strip())
+
+    smtp_info = smtp_status()
+    if "not configured" in smtp_info:
+        await message.answer(
+            f"❌ *SMTP belum diset!*\n\n"
+            f"`{smtp_info}`\n\n"
+            "Tambah env vars di Northflank:\n"
+            "`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`",
+            parse_mode="Markdown",
+        )
+        return
+
+    user = await db.get_user_info(target_id)
+    if not user:
+        await message.answer(
+            f"⚠️ User `{target_id}` tidak dijumpai dalam database.",
+            parse_mode="Markdown",
+        )
+        return
+
+    email = await db.get_backup_email(target_id)
+    if not email:
+        uname = f"@{user['username']}" if user.get("username") else user.get("full_name", str(target_id))
+        await message.answer(
+            f"⚠️ User *{uname}* (`{target_id}`) belum set backup email.\n\n"
+            "Suruh user set dulu melalui ⚙️ Control Panel → 📩 Backup Email.",
+            parse_mode="Markdown",
+        )
+        return
+
+    userbot    = await db.get_userbot(target_id)
+    userbot_id = userbot["userbot_id"] if userbot else ""
+    username   = user.get("username") or ""
+
+    wait_msg = await message.answer(
+        f"⏳ Menghantar test confirmation email ke `{email}`...", parse_mode="Markdown"
+    )
+
+    ok = await send_confirmation_email(
+        to_email=email,
+        user_id=target_id,
+        userbot_id=userbot_id,
+        username=username,
+    )
+
+    await wait_msg.delete()
+
+    if ok:
+        await message.answer(
+            f"✅ *Test confirmation email berjaya dihantar!*\n\n"
+            f"📩 To: `{email}`\n"
+            f"👤 Telegram: `{target_id}`\n"
+            f"🤖 Userbot ID: `{userbot_id or 'Not Set'}`\n\n"
+            f"_Semak inbox / spam folder._",
+            parse_mode="Markdown",
+        )
+        await db.write_admin_log(
+            ADMIN_ID, "test_backup_email",
+            target_user_id=target_id, notes=f"email={email}",
+        )
+    else:
+        await message.answer(
+            f"❌ *Gagal hantar email!*\n\n"
+            f"Semak log bot untuk butiran ralat.\n"
+            f"SMTP status: `{smtp_info}`",
+            parse_mode="Markdown",
+        )
+
+
+# ──────────────────────────────────────────────────────────────
 # /check_expiry — Manual trigger expiry notification check
 # ──────────────────────────────────────────────────────────────
 

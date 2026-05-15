@@ -148,20 +148,46 @@ async def process_email(message: Message, state: FSMContext):
 
     ok = await db.set_backup_email(uid, email)
     if ok:
-        await message.answer(
-            f"✅ *Backup email saved!*\n\n📩 `{email}`\n\n"
-            "_Confirmation email akan dihantar ke inbox kau sekarang._",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")]
-            ]),
+        # Ambil userbot_id dan username untuk body email
+        userbot_id = ""
+        username   = message.from_user.username or ""
+        try:
+            session = await db.get_session(uid)
+            if session:
+                userbot_id = session.get("userbot_id") or ""
+            if not userbot_id:
+                userbot = await db.get_userbot(uid)
+                if userbot:
+                    userbot_id = userbot.get("userbot_id") or ""
+        except Exception as e:
+            logger.warning("[SETTINGS] gagal ambil userbot_id untuk email uid=%s: %s", uid, e)
+
+        sent = await send_confirmation_email(
+            to_email=email,
+            user_id=uid,
+            userbot_id=userbot_id,
+            username=username,
         )
-        sent = await send_confirmation_email(to_email=email, user_id=uid)
-        if not sent:
+
+        if sent:
             await message.answer(
-                "⚠️ _Email confirmation tak dapat dihantar — SMTP mungkin belum diset. "
-                "Backup email korang tetap tersimpan dalam sistem._",
+                f"✅ *Backup email saved!*\n\n"
+                f"📩 `{email}`\n\n"
+                f"_Confirmation email dah dihantar ke inbox korang. Semak juga folder Spam._",
                 parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")]
+                ]),
+            )
+        else:
+            await message.answer(
+                f"✅ Backup email saved.\n\n"
+                f"📩 `{email}`\n\n"
+                f"⚠️ Confirmation email gagal dihantar. Admin sedang semak email server.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⬅️ Back", callback_data="main_menu")]
+                ]),
             )
     else:
         await message.answer(
