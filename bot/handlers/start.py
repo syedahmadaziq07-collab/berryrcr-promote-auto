@@ -165,20 +165,26 @@ async def cmd_start(message: Message, bot: Bot):
                     if referrer_id != user.id:
                         created = await db.create_referral(referrer_id, user.id, ref_param)
                         if created:
-                            await db.finalize_referral_coins(referrer_id, user.id)
+                            logger.info(
+                                "[REFERRAL] referral_registered | referrer=%s referred=%s",
+                                referrer_id, user.id,
+                            )
                             await message.answer(
-                                "🎁 *Tahniah!* Anda menerima *50 syiling* bonus kerana menggunakan kod rujukan!",
+                                "🎁 *Jemputan berjaya!*\n\n"
+                                "Korang akan dapat *100 Syiling* apabila activate plan *PLUS* atau *PRO*.\n"
+                                "Kawan yang jemput korang pun akan dapat 100 Syiling sekali! 🤑",
                                 parse_mode="Markdown",
                             )
-                            try:
-                                await bot.send_message(
-                                    referrer_id,
-                                    f"🎉 Rakan baru telah menyertai menggunakan kod rujukan anda!\n"
-                                    f"Anda menerima *100 syiling* bonus!",
-                                    parse_mode="Markdown",
-                                )
-                            except Exception:
-                                pass
+                        else:
+                            logger.info(
+                                "[REFERRAL] referral_duplicate_blocked | referrer=%s referred=%s",
+                                referrer_id, user.id,
+                            )
+                    else:
+                        logger.info(
+                            "[REFERRAL] referral_duplicate_blocked (self-refer) | user_id=%s",
+                            user.id,
+                        )
                 except Exception as e:
                     logger.warning("Referral processing error: %s", e)
 

@@ -1484,16 +1484,33 @@ async def has_been_referred(referred_id: int) -> bool:
 
 
 async def create_referral(referrer_id: int, referred_id: int, ref_code: str) -> bool:
+    """
+    Daftar referral baru dengan reward_status='pending'.
+    Reward hanya diberi bila referred user berjaya aktifkan plan PLUS/PRO.
+
+    SQL Migration (jalankan sekali dalam Supabase SQL Editor):
+      ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reward_status TEXT DEFAULT 'pending';
+      ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reward_amount INTEGER DEFAULT 100;
+      ALTER TABLE referrals ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+      UPDATE referrals SET reward_status = 'paid'    WHERE coins_given > 0;
+      UPDATE referrals SET reward_status = 'pending' WHERE coins_given = 0 OR coins_given IS NULL;
+    """
     try:
         client = await get_client()
         already = await has_been_referred(referred_id)
         if already:
+            logger.info(
+                "[REFERRAL] referral_duplicate_blocked | referred_id=%s sudah ada referrer",
+                referred_id,
+            )
             return False
         await client.table("referrals").insert({
             "referrer_id": referrer_id,
             "referred_id": referred_id,
             "ref_code": ref_code,
             "coins_given": 0,
+            "reward_status": "pending",
+            "reward_amount": 100,
         }).execute()
         return True
     except Exception as e:
@@ -1506,28 +1523,90 @@ async def get_referral_stats(user_id: int) -> dict:
         client = await get_client()
         res = await client.table("referrals").select("*").eq("referrer_id", user_id).execute()
         rows = res.data or []
-        total_coins = sum(r.get("coins_given", 0) for r in rows)
-        return {"count": len(rows), "total_coins": total_coins}
+        paid_count    = sum(1 for r in rows if r.get("reward_status") == "paid")
+        pending_count = sum(1 for r in rows if r.get("reward_status") != "paid")
+        total_coins   = paid_count * 100
+        return {
+            "count": len(rows),
+            "paid_count": paid_count,
+            "pending_count": pending_count,
+            "total_coins": total_coins,
+        }
     except Exception as e:
         logger.warning("get_referral_stats error: %s", e)
-        return {"count": 0, "total_coins": 0}
+        return {"count": 0, "paid_count": 0, "pending_count": 0, "total_coins": 0}
 
 
-async def finalize_referral_coins(referrer_id: int, referred_id: int) -> bool:
-    """Kredit syiling kepada kedua-dua pihak. Dipanggil selepas user baru /start."""
+async def get_pending_referral(referred_id: int):
+    """
+    Semak jika referred_id ada referral pending (belum dapat reward).
+    Kembalikan rekod referral atau None.
+    """
     try:
         client = await get_client()
-        REFERRER_COINS = 100
-        REFERRED_COINS = 50
-        await add_coins(referrer_id, REFERRER_COINS, f"Bonus rujukan — user baru {referred_id}")
-        await add_coins(referred_id, REFERRED_COINS, "Bonus selamat datang — kod rujukan")
-        await client.table("referrals").update(
-            {"coins_given": REFERRER_COINS + REFERRED_COINS}
-        ).eq("referrer_id", referrer_id).eq("referred_id", referred_id).execute()
-        logger.info("finalize_referral_coins referrer=%s referred=%s OK", referrer_id, referred_id)
+        res = (
+            await client.table("referrals")
+            .select("*")
+            .eq("referred_id", referred_id)
+            .eq("reward_status", "pending")
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        logger.warning("get_pending_referral error referred_id=%s: %s", referred_id, e)
+        return None
+
+
+async def pay_referral_reward(referrer_id: int, referred_id: int) -> bool:
+    """
+    Kredit 100 syiling kepada referrer DAN referred user.
+    Mark reward_status = 'paid'. Dipanggil selepas referred user aktifkan PLUS/PRO.
+    Idempotent — semak paid status dulu.
+    """
+    try:
+        client = await get_client()
+        REWARD = 100
+
+        # Semak semula supaya idempotent
+        res = (
+            await client.table("referrals")
+            .select("reward_status")
+            .eq("referrer_id", referrer_id)
+            .eq("referred_id", referred_id)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            logger.warning(
+                "[REFERRAL] pay_referral_reward — rekod tidak dijumpai referrer=%s referred=%s",
+                referrer_id, referred_id,
+            )
+            return False
+        if res.data[0].get("reward_status") == "paid":
+            logger.info(
+                "[REFERRAL] referral_duplicate_blocked (already paid) | referrer=%s referred=%s",
+                referrer_id, referred_id,
+            )
+            return False
+
+        await add_coins(referrer_id, REWARD, f"Referral reward — kawan {referred_id} aktif plan")
+        await add_coins(referred_id, REWARD, f"Referral reward — dijemput oleh {referrer_id}")
+
+        now_str = datetime.now(timezone.utc).isoformat()
+        await client.table("referrals").update({
+            "reward_status": "paid",
+            "coins_given": REWARD * 2,
+            "paid_at": now_str,
+        }).eq("referrer_id", referrer_id).eq("referred_id", referred_id).execute()
+
+        logger.info(
+            "[REFERRAL] referral_reward_paid | referrer=%s referred=%s coins=%d each",
+            referrer_id, referred_id, REWARD,
+        )
         return True
     except Exception as e:
-        logger.warning("finalize_referral_coins error: %s", e)
+        logger.warning("pay_referral_reward error referrer=%s referred=%s: %s", referrer_id, referred_id, e)
         return False
 
 

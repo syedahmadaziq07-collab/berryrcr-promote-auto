@@ -17,45 +17,32 @@ async def _build_referral_text(uid: int, bot_username: str) -> str:
     link     = f"https://t.me/{bot_username}?start={ref_code}"
 
     return (
-        "🎁 *KOD RUJUKAN ANDA*\n"
+        "🎁 *GET FREE 100 SYILING*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Share link referral korang dengan kawan.\n"
+        "Bila dorang activate plan *PLUS* atau *PRO*,\n"
+        "korang dapat *100 Syiling* — kawan korang pun dapat *100 Syiling*! 🤑\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔗 Kod    : `{ref_code}`\n"
-        f"📎 Link   : {link}\n"
+        f"🔗 *Link Referral Korang:*\n"
+        f"`{link}`\n\n"
+        f"📊 *Stat Korang:*\n"
+        f"👥 Jemputan Berjaya: *{stats['paid_count']} orang*\n"
+        f"⏳ Pending (belum aktif plan): *{stats['pending_count']} orang*\n"
+        f"🪙 Total Syiling Diterima: *{stats['total_coins']} Syiling*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 Jumlah Rujukan     : *{stats['count']} orang*\n"
-        f"🪙 Syiling Diperoleh  : *{stats['total_coins']} syiling*\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "_Setiap rujukan memberikan:_\n"
-        "• Anda: *100 syiling*\n"
-        "• Rakan baru: *50 syiling*"
+        "📌 *Cara kerja:*\n"
+        "1️⃣ Share link kat kawan\n"
+        "2️⃣ Kawan guna link tu untuk /start\n"
+        "3️⃣ Kawan activate plan PLUS atau PRO\n"
+        "4️⃣ Korang & kawan masing-masing dapat 100 Syiling 🎉\n\n"
+        "⚠️ Reward hanya 1x per kawan — tak boleh self-refer."
     )
 
 
-@router.callback_query(F.data == "referral_menu")
-async def cb_referral_menu(callback: CallbackQuery):
-    await callback.answer()
-    uid = callback.from_user.id
-    try:
-        bot_info = await callback.bot.get_me()
-        bot_username = bot_info.username or "bot"
-    except Exception:
-        bot_username = "bot"
-
-    text = await _build_referral_text(uid, bot_username)
-    await callback.message.edit_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Muat Semula", callback_data="referral_menu")],
-            [InlineKeyboardButton(text="🔙 Kembali", callback_data="main_menu")],
-        ]),
-        disable_web_page_preview=True,
-    )
-
-
-@router.message(F.text == "🎁 Rujukan")
+@router.message(F.text == "🎁 Get Free 100 Syiling")
 async def msg_referral(message: Message):
     uid = message.from_user.id
+    logger.info("[REFERRAL] referral_link_opened | user_id=%s", uid)
     try:
         bot_info = await message.bot.get_me()
         bot_username = bot_info.username or "bot"
@@ -67,8 +54,40 @@ async def msg_referral(message: Message):
         text,
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 Lihat Rujukan", callback_data="referral_menu")],
-            [InlineKeyboardButton(text="🔙 Menu Utama", callback_data="main_menu")],
+            [InlineKeyboardButton(text="🔄 Refresh Stats", callback_data="referral_menu")],
         ]),
         disable_web_page_preview=True,
     )
+
+
+@router.callback_query(F.data == "referral_menu")
+async def cb_referral_menu(callback: CallbackQuery):
+    await callback.answer()
+    uid = callback.from_user.id
+    logger.info("[REFERRAL] referral_link_opened (cb) | user_id=%s", uid)
+    try:
+        bot_info = await callback.bot.get_me()
+        bot_username = bot_info.username or "bot"
+    except Exception:
+        bot_username = "bot"
+
+    text = await _build_referral_text(uid, bot_username)
+    try:
+        await callback.message.edit_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Refresh Stats", callback_data="referral_menu")],
+                [InlineKeyboardButton(text="🔙 Menu Utama", callback_data="main_menu")],
+            ]),
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        await callback.message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Refresh Stats", callback_data="referral_menu")],
+            ]),
+            disable_web_page_preview=True,
+        )

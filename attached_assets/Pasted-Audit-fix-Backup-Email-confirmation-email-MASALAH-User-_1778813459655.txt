@@ -1,0 +1,76 @@
+Audit & fix Backup Email confirmation email.
+
+MASALAH:
+User sudah set Backup Email dan bot reply:
+“Confirmation email akan dihantar ke inbox kau sekarang.”
+
+Tapi inbox tidak terima apa-apa email.
+
+JANGAN sentuh OTP/login/topup/promote/subscription.
+Fokus sistem Backup Email + SMTP sahaja.
+
+TUGAS:
+1. Audit flow selepas user save Backup Email.
+2. Pastikan selepas email disimpan, function send confirmation email memang dipanggil.
+3. Check SMTP env:
+SMTP_HOST
+SMTP_PORT
+SMTP_USER
+SMTP_PASS
+SMTP_FROM
+
+4. Bot running di Northflank, jadi env mesti dibaca dari Northflank runtime.
+5. Jika env SMTP tiada/salah:
+- jangan crash
+- reply user:
+✅ Backup email saved.
+⚠️ Confirmation email gagal dihantar. Admin sedang semak email server.
+
+6. Tambah full logging tanpa expose password:
+- smtp_env_loaded
+- smtp_connect_start
+- smtp_connect_success
+- smtp_connect_failed
+- confirmation_email_send_start
+- confirmation_email_sent
+- confirmation_email_failed
+- recipient_email
+- exception class
+- exception message
+
+7. Pastikan Gmail SMTP guna:
+host: smtp.gmail.com
+port: 587
+TLS/starttls enabled
+
+8. Pastikan subject email:
+✅ Backup Email Successfully Connected
+
+9. Gunakan body email ini EXACTLY, cuma replace dynamic value:
+
+Hi bro 👋
+
+Backup email untuk userbot korang dah berjaya connected ✅
+
+🆔 Userbot ID: <userbot_id atau Not Set>  
+📱 Telegram: @<username atau user_id>
+
+Email ni akan digunakan untuk:
+• Recovery token  
+• Login backup  
+• Session restore  
+• Security alert notification 🛡️
+
+Kalau account logout / session problem, sistem akan auto hantar recovery info ke email ni 📩
+
+🚀 Promote Auto by @berryrcr_bot
+
+10. Jika email gagal dihantar, simpan email tetap berjaya.
+11. Jangan log SMTP_PASS.
+12. Jangan hantar OTP/session string/token dalam email.
+13. Tambah command admin/test jika belum ada:
+/test_backup_email <telegram_user_id>
+untuk test hantar confirmation email ke backup email user tersebut.
+
+14. Tunjukkan fail yang diubah sahaja.
+15. Restart bot selepas siap dan tunjuk log ringkas

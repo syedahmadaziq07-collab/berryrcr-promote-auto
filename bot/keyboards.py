@@ -17,6 +17,7 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="🛒 Shop Zone"),      KeyboardButton(text="⚠️ Help Center")],
             [KeyboardButton(text="🔑 Recover Token"),  KeyboardButton(text="📚 Create Userbot")],
+            [KeyboardButton(text="🎁 Get Free 100 Syiling")],
             [KeyboardButton(text="⚙️ Control Panel")],
         ],
         resize_keyboard=True,
@@ -220,9 +221,6 @@ def tetapan_kb() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🔔 Notification",        callback_data="notif_menu"),
             InlineKeyboardButton(text="📩 Backup Email",        callback_data="email_menu"),
-        ],
-        [
-            InlineKeyboardButton(text="🎁 Referral Code",       callback_data="referral_menu"),
         ],
         [
             InlineKeyboardButton(text="🚀 Start Promote",       callback_data="start_promote"),

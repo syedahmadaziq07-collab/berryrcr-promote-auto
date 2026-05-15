@@ -273,6 +273,43 @@ async def cb_plan_final(callback: CallbackQuery):
             "coins_before=%s | coins_deducted=%s | coins_after=%s | key=%s",
             uid, plan_key, months, coins_before, total, coins_after, purchase_key,
         )
+
+        # ── Referral reward hook — PLUS/PRO aktivasi sahaja ──
+        if plan_key in ("PLUS", "PRO"):
+            try:
+                pending_ref = await db.get_pending_referral(uid)
+                if pending_ref:
+                    referrer_id = pending_ref["referrer_id"]
+                    logger.info(
+                        "[REFERRAL] referral_reward_pending → pay | referrer=%s referred=%s plan=%s",
+                        referrer_id, uid, plan_key,
+                    )
+                    paid = await db.pay_referral_reward(referrer_id, uid)
+                    if paid:
+                        try:
+                            await callback.bot.send_message(
+                                referrer_id,
+                                f"🎉 *Referral Reward Masuk!*\n\n"
+                                f"Kawan korang baru je aktifkan plan *{plan_key}*!\n"
+                                f"🪙 *+100 Syiling* dah masuk wallet korang. Leggo! 💰",
+                                parse_mode="Markdown",
+                            )
+                        except Exception as notify_err:
+                            logger.warning(
+                                "[REFERRAL] gagal notify referrer=%s: %s", referrer_id, notify_err
+                            )
+                        try:
+                            await callback.bot.send_message(
+                                uid,
+                                f"🎁 *Referral Bonus Diterima!*\n\n"
+                                f"Korang join guna link referral tadi, so dapat *+100 Syiling* free!\n"
+                                f"Enjoy plan *{plan_key}* korang~ 🔥",
+                                parse_mode="Markdown",
+                            )
+                        except Exception:
+                            pass
+            except Exception as ref_err:
+                logger.warning("[REFERRAL] referral hook error uid=%s: %s", uid, ref_err)
         expires_str = expires.strftime("%d %b %Y")
         started_str = started.strftime("%d %b %Y")
 
