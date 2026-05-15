@@ -1,0 +1,151 @@
+You are tasked with performing a CRITICAL PRODUCTION AUDIT on a Telegram auto-promote bot system currently running on Northflank. This is NOT a quick fix request — this is a deep root cause analysis mission.
+
+🚨 CRITICAL CONTEXT:
+- Bot is LIVE in production on Northflank
+- Current bug: buying a userbot incorrectly auto-assigns a PLUS subscription plan
+- This is breaking the business logic between one-time purchases and recurring subscriptions
+
+📋 AUDIT OBJECTIVES:
+
+**Phase 1: DO NOT MODIFY ANYTHING YET — AUDIT ONLY**
+
+1. **File Discovery & Mapping**
+   - Scan ALL files in the project
+   - Identify ALL files containing:
+     • "userbot" logic (purchase, assignment, activation)
+     • "subscription" logic (PLUS, PRO, plan assignment)
+     • "expires_at" or expiry date handling
+     • Database models, schemas, or ORM definitions
+     • Payment/purchase handlers
+     • Syiling (coin) transaction logic
+   - List every relevant file with its role in the system
+
+2. **Database Schema Audit**
+   - Map out the COMPLETE database schema for:
+     • Users table (fields related to userbot ownership, subscription status)
+     • Userbot table/records (how userbot slots are tracked)
+     • Subscriptions table (PLUS/PRO plans, expires_at, active status)
+     • Transactions/payments table (syiling purchases)
+   - Document ALL foreign keys and relationships
+   - Identify how "active plan" is determined (computed? stored field? join query?)
+
+3. **Flow Analysis: Buy Userbot (300 syiling)**
+   - Trace the COMPLETE execution flow when a user buys a userbot:
+     • Entry point (command handler, callback query handler)
+     • Syiling deduction logic
+     • Userbot assignment/activation code
+     • ANY subscription-related code that gets triggered
+     • Database writes (which tables, which fields, what values)
+   - **For each step, provide:**
+     • File path
+     • Function name
+     • Exact line numbers
+     • Code snippet showing the logic
+     • Why this step executes
+
+4. **Flow Analysis: Setup Month & Plan (PLUS/PRO)**
+   - Trace the COMPLETE execution flow for PLUS/PRO subscription purchase:
+     • Entry point
+     • Plan selection logic
+     • Expiry date calculation (expires_at)
+     • Database writes
+   - **Document differences** between this flow and the userbot flow
+
+5. **Root Cause Identification**
+   - Pinpoint the EXACT location where buying a userbot triggers PLUS plan creation
+   - Is it:
+     • Shared function being called by both flows?
+     • Incorrect conditional logic?
+     • Database trigger/constraint?
+     • Event listener/hook?
+     • Copy-pasted code with wrong parameter?
+   - Provide the smoking gun: exact file, function, line number, and code
+
+6. **Impact Analysis**
+   - How many users might be affected by this bug?
+   - Are there database records showing users with:
+     • Userbot purchased + unintended PLUS plan?
+     • Incorrect expires_at dates?
+   - Can you detect this pattern in the data?
+
+7. **Logging & Transaction History**
+   - Check if there are logs showing:
+     • Userbot purchases
+     • Subscription creations
+     • Timestamps correlation
+   - Analyze recent transactions to confirm the bug pattern
+
+**Phase 2: Solution Design (DO NOT IMPLEMENT YET)**
+
+After completing the audit, propose:
+1. **Separation Strategy**
+   - How to cleanly separate userbot (lifetime, no expiry) from subscriptions (PLUS/PRO with expires_at)
+   - Database schema changes needed (if any)
+   - Code refactoring required
+
+2. **Migration Plan**
+   - How to fix existing affected users
+   - Data cleanup queries (show them, don't run them)
+   - Rollback strategy if fix causes issues
+
+3. **Testing Checklist**
+   - What to test before deploying fix
+   - Edge cases to verify
+
+**CRITICAL CONSTRAINTS:**
+- ❌ DO NOT modify Setup Month & Plan flow (PLUS/PRO subscription purchase)
+- ❌ DO NOT touch BOT_TOKEN or Northflank deployment configs
+- ✅ ONLY focus on fixing Buy Userbot flow
+- ✅ Ensure userbot = lifetime, no expiry, no auto subscription
+- ✅ Preserve all existing PLUS/PRO subscription logic
+
+**DESIRED FINAL STATE:**
+
+🧩 **Buy Userbot (300 syiling)**
+- Lifetime ownership
+- No expires_at field set
+- No PLUS/PRO plan auto-created
+- Unlocks 1 userbot slot
+- User can use userbot forever
+
+💎 **Setup Month & Plan**
+- PLUS / PRO subscriptions only
+- Has expires_at date
+- Separate from userbot ownership
+
+📊 **Account Status Display**
+If no active subscription:
+💎 Plan: Not Active
+⏳ Expired On: None
+
+**DELIVERABLE FORMAT:**
+
+# 🔍 PRODUCTION AUDIT REPORT
+
+## 1. File Inventory
+[List all relevant files with their roles]
+
+## 2. Database Schema
+[Complete schema documentation with relationships]
+
+## 3. Buy Userbot Flow — Step-by-Step Execution
+[Detailed trace with file paths, functions, line numbers, code snippets]
+
+## 4. Setup Month & Plan Flow — Step-by-Step Execution
+[Detailed trace for comparison]
+
+## 5. Root Cause Analysis
+[Exact location and explanation of the bug]
+
+## 6. Impact Assessment
+[Data analysis, affected users, severity]
+
+## 7. Proposed Solution (Not Implemented)
+[Clean separation strategy with code examples]
+
+## 8. Migration Plan (Not Executed)
+[Data cleanup queries, testing checklist]
+
+---
+
+**START THE AUDIT NOW. Read all relevant files simultaneously. Provide the complete audit report before making ANY code changes.**
