@@ -17,8 +17,9 @@ from telethon.errors import (
     ChannelPrivateError, ChatAdminRequiredError, SlowModeWaitError,
     AuthKeyUnregisteredError, UserDeactivatedBanError,
     UserNotParticipantError, PeerIdInvalidError, UsernameInvalidError,
-    UsernameNotOccupiedError, InviteHashInvalidError,
+    UsernameNotOccupiedError, InviteHashInvalidError, PeerFloodError,
 )
+from utils.safe_mode import calc_safe_delay_flood, calc_safe_delay_peerflood, cooldown_until_dt
 import database as db
 from config import MANDATORY_FOOTER, MIN_DELAY_MINUTES, API_ID, API_HASH
 from services.email_service import notify_session_error
@@ -502,31 +503,75 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
                     await asyncio.sleep(3)
 
                 except FloodWaitError as e:
-                    wait_secs = e.seconds + 5
-                    flood_wait_total += wait_secs
                     fail_count += 1
                     reason = f"FloodWait {e.seconds}s"
                     fail_reasons.append(f"'{gname}': {reason}")
                     logger.warning(
-                        "[PROMO] uid=%s | ✗ FloodWait ke '%s' (id=%s) — "
-                        "tunggu %ds | jumlah flood: %ds",
-                        user_id, gname, gid, wait_secs, flood_wait_total,
+                        "[PROMO] uid=%s | ✗ FloodWait ke '%s' (id=%s) — %ds",
+                        user_id, gname, gid, e.seconds,
                     )
-                    if flood_wait_total > 300:
-                        logger.error(
-                            "[PROMO] uid=%s | FloodWait melebihi 5 minit — hentikan promo",
-                            user_id,
+                    if e.seconds >= 60:
+                        # FloodWait besar — aktifkan Safe Mode
+                        orig_delay = settings.get("delay_minutes", delay_minutes or MIN_DELAY_MINUTES)
+                        safe_delay = calc_safe_delay_flood(e.seconds)
+                        cooldown = cooldown_until_dt()
+                        logger.warning(
+                            "[SAFEMODE] uid=%s | FloodWait(%ds) → safe_mode ON | "
+                            "delay %dm → %dm | cooldown until %s",
+                            user_id, e.seconds, orig_delay, safe_delay, cooldown,
                         )
-                        await db.set_promo_running(user_id, False)
-                        stop_promo_job(user_id)
+                        await db.activate_safe_mode(
+                            user_id, userbot_id, orig_delay, safe_delay,
+                            reason=f"FloodWait {e.seconds}s",
+                            risk_level="medium",
+                            cooldown_until=cooldown,
+                        )
+                        start_promo_job(user_id, delay_minutes=safe_delay)
                         await _notify_user(
                             user_id,
-                            "⚠️ *Promote Dihentikan Sementara*\n\n"
-                            "Akaun anda telah dihadkan oleh Telegram (Flood Wait).\n"
-                            "Sila tunggu beberapa jam sebelum mulakan semula.",
+                            f"🛡️ *Safe Mode Activated!*\n\n"
+                            f"Telegram hadkan akaun anda (FloodWait {e.seconds}s).\n\n"
+                            f"📦 Delay ditingkat: *{orig_delay}m → {safe_delay}m*\n"
+                            f"⏳ Cooldown: *2 jam*\n\n"
+                            f"Promote akan terus berjalan dengan delay baru.\n"
+                            f"Delay asal akan dipulihkan automatik selepas cooldown.",
                         )
-                        return
-                    await asyncio.sleep(wait_secs)
+                        await asyncio.sleep(min(e.seconds, 60))
+                        break
+                    else:
+                        await asyncio.sleep(e.seconds + 5)
+
+                except PeerFloodError:
+                    fail_count += 1
+                    reason = "PeerFlood — akaun dihadkan"
+                    fail_reasons.append(f"'{gname}': {reason}")
+                    orig_delay = settings.get("delay_minutes", delay_minutes or MIN_DELAY_MINUTES)
+                    safe_delay = calc_safe_delay_peerflood(orig_delay)
+                    cooldown = cooldown_until_dt()
+                    logger.error(
+                        "[SAFEMODE] uid=%s | PeerFlood → safe_mode ON (HIGH RISK) | "
+                        "delay %dm → %dm | pause 1h | cooldown until %s",
+                        user_id, orig_delay, safe_delay, cooldown,
+                    )
+                    await db.activate_safe_mode(
+                        user_id, userbot_id, orig_delay, safe_delay,
+                        reason="PeerFlood",
+                        risk_level="high",
+                        cooldown_until=cooldown,
+                    )
+                    start_promo_job(user_id, delay_minutes=safe_delay)
+                    await _notify_user(
+                        user_id,
+                        f"🛡️ *Safe Mode Activated! (High Risk)*\n\n"
+                        f"Telegram kesan terlalu banyak request (PeerFlood).\n\n"
+                        f"📦 Delay ditingkat: *{orig_delay}m → {safe_delay}m*\n"
+                        f"⏸️ Pause: *1 jam* sebelum promote semula\n"
+                        f"⏳ Cooldown: *2 jam*\n\n"
+                        f"Promote akan sambung semula selepas 1 jam.\n"
+                        f"Delay asal dipulihkan automatik selepas cooldown.",
+                    )
+                    await asyncio.sleep(3600)
+                    break
 
                 except SlowModeWaitError as e:
                     fail_count += 1

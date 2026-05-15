@@ -13,6 +13,7 @@ from services.supabase_service import get_client
 from services.sqlite_storage import SQLiteStorage
 from services.subscription_checker import check_expired_subscriptions
 from services import expiry_notifier
+from services import safe_mode_checker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -179,6 +180,37 @@ async def check_tables():
         + "=" * 60
     )
 
+    # ── Semak safe_mode_status table ──
+    try:
+        await client.table("safe_mode_status").select("id").limit(1).execute()
+        logger.info("Table safe_mode_status — OK")
+    except Exception as e:
+        issues.append(f"safe_mode_status: {e}")
+        logger.error(
+            "=" * 60 + "\n"
+            "KRITIKAL: Table 'safe_mode_status' TIDAK WUJUD!\n"
+            "Jalankan SQL ini dalam Supabase SQL Editor:\n"
+            "https://supabase.com/dashboard/project/ymlofdqtmsfftnuskgbq/sql\n\n"
+            "  CREATE TABLE IF NOT EXISTS safe_mode_status (\n"
+            "    id               BIGSERIAL PRIMARY KEY,\n"
+            "    user_id          BIGINT NOT NULL,\n"
+            "    userbot_id       VARCHAR(50),\n"
+            "    safe_mode_active BOOLEAN DEFAULT FALSE,\n"
+            "    original_delay   INTEGER NOT NULL,\n"
+            "    safe_delay       INTEGER NOT NULL,\n"
+            "    reason           TEXT,\n"
+            "    risk_level       VARCHAR(20),\n"
+            "    activated_at     TIMESTAMPTZ DEFAULT NOW(),\n"
+            "    cooldown_until   TIMESTAMPTZ,\n"
+            "    restored_at      TIMESTAMPTZ,\n"
+            "    UNIQUE(user_id, userbot_id)\n"
+            "  );\n"
+            "  CREATE INDEX IF NOT EXISTS idx_safe_mode_active ON safe_mode_status(safe_mode_active);\n"
+            "  CREATE INDEX IF NOT EXISTS idx_safe_mode_cooldown ON safe_mode_status(cooldown_until);\n\n"
+            "Safe Mode system TIDAK akan berfungsi sehingga table ini dibuat.\n"
+            + "=" * 60
+        )
+
     # ── Jika ada isu, cetak SQL penuh ──
     if issues:
         logger.error("=" * 60)
@@ -223,6 +255,7 @@ async def main():
     scheduler_service.set_bot(bot)
     scheduler_service.start_scheduler()
     expiry_notifier.set_bot(bot)
+    safe_mode_checker.set_bot(bot)
     try:
         await scheduler_service.restore_running_promos()
         logger.info("Scheduler dan promo jobs dipulihkan.")
@@ -233,6 +266,8 @@ async def main():
     logger.info("Subscription checker dimulakan (semak setiap 1 jam).")
     asyncio.create_task(expiry_notifier.run_expiry_check_loop())
     logger.info("Expiry notifier dimulakan (semak setiap 12 jam).")
+    asyncio.create_task(safe_mode_checker.run_safe_mode_restore_loop())
+    logger.info("Safe Mode checker dimulakan (semak setiap 15 minit).")
 
     # Clear webhook so polling can work
     await bot.delete_webhook(drop_pending_updates=True)

@@ -72,6 +72,21 @@ async def _build_status_text(uid: int) -> str:
     channel_count = sum(1 for g in groups if g.get("target_type") == "channel")
     group_count   = len(groups)
 
+    # ── Safe Mode ──
+    safe_mode_label = "OFF"
+    try:
+        sm = await db.get_safe_mode(uid)
+        if sm and sm.get("safe_mode_active"):
+            from utils.safe_mode import format_cooldown_remaining
+            baki = format_cooldown_remaining(sm.get("cooldown_until", ""))
+            risk = sm.get("risk_level", "medium")
+            risk_icon = "🔴" if risk == "high" else "🟡"
+            safe_mode_label = f"{risk_icon} ON — restore dalam {baki}"
+        elif sm and not sm.get("safe_mode_active"):
+            safe_mode_label = "✅ Restored"
+    except Exception:
+        pass
+
     # ── Expert mode ──
     expert_on    = await db.get_expert_mode(uid)
     mode_label   = "Lanjutan 🧠" if expert_on else "Normal"
@@ -130,7 +145,7 @@ async def _build_status_text(uid: int) -> str:
         f"🗂️ Saved List: {group_count}\n"
         f"\n"
         f"🦾 Mode Sekarang: {mode_label}\n"
-        f"🛡️ Safe Mode: ON\n"
+        f"🛡️ Safe Mode: {safe_mode_label}\n"
         f"🚦 Status Bot: {bot_status}\n"
         f"💎 Plan: {plan_str}\n"
         f"⏳ Expired On: {expired_str}{days_left_str}\n"

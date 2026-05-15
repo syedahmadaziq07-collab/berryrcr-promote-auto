@@ -1,0 +1,86 @@
+Scenario 1: FloodWait detected
+1. User promoting with 15 min delay
+2. Telegram returns FloodWait(2700s)
+3. Bot activates safe mode:
+   - Original: 15 min
+   - Safe: 54 min (2700s × 1.2 / 60)
+4. User gets notification
+5. Promote continues with 54 min delay
+6. After 2 hours cooldown
+7. Bot auto-restores to 15 min
+8. User gets restore notification
+
+Scenario 2: PeerFlood detected
+1. User promoting with 20 min delay
+2. Telegram returns PeerFlood
+3. Bot activates safe mode (high risk):
+   - Original: 20 min
+   - Safe: 100 min (20 × 5)
+   - Pause: 1 hour
+4. User gets notification
+5. Promote pauses 1 hour, then continues with 100 min delay
+6. After 2 hours cooldown
+7. Auto-restore to 20 min
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SQL MIGRATION OUTPUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Print this for manual execution:
+
+-- Run this in Supabase SQL Editor:
+
+CREATE TABLE IF NOT EXISTS safe_mode_status (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    userbot_id VARCHAR(50),
+    safe_mode_active BOOLEAN DEFAULT FALSE,
+    original_delay INTEGER NOT NULL,
+    safe_delay INTEGER NOT NULL,
+    reason TEXT,
+    risk_level VARCHAR(20),
+    activated_at TIMESTAMPTZ DEFAULT NOW(),
+    cooldown_until TIMESTAMPTZ,
+    restored_at TIMESTAMPTZ,
+    UNIQUE(user_id, userbot_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_safe_mode_active ON safe_mode_status(safe_mode_active);
+CREATE INDEX IF NOT EXISTS idx_safe_mode_cooldown ON safe_mode_status(cooldown_until);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILES TO CREATE/MODIFY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create:
+- bot/utils/safe_mode.py (core logic)
+- bot/services/safe_mode_checker.py (background task)
+
+Modify:
+- bot/database.py (add safe mode functions)
+- bot/handlers/promote.py (integrate error detection)
+- bot/main.py (start background task)
+- bot/handlers/status.py (show safe mode in status)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Show:
+- Files created/modified
+- SQL migration commands (don't run)
+- Key changes per file
+- Safe mode activation/restore flow diagram
+- Bot restart confirmation
+- Sample logs
+
+Don't show:
+- Full file contents
+- Unrelated code
+- Other features
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+START IMPLEMENTATION NOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create Auto Safe Mode system to protect user accounts from Telegram rate limits. Detect FloodWait/PeerFlood errors, temporarily increase delay, then auto-restore after cooldown. Notify users on activate and restore.

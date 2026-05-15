@@ -1603,3 +1603,74 @@ async def delete_group_message(user_id: int, group_id: str) -> bool:
     except Exception as e:
         logger.warning("delete_group_message error: %s", e)
         return False
+
+
+# ─────────────────────────────────────────────
+# SAFE MODE
+# ─────────────────────────────────────────────
+
+async def get_safe_mode(user_id: int):
+    try:
+        client = await get_client()
+        res = await client.table("safe_mode_status").select("*").eq("user_id", user_id).limit(1).execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        logger.warning("get_safe_mode error uid=%s: %s", user_id, e)
+        return None
+
+
+async def activate_safe_mode(
+    user_id: int,
+    userbot_id: str,
+    original_delay: int,
+    safe_delay: int,
+    reason: str,
+    risk_level: str,
+    cooldown_until,
+) -> bool:
+    try:
+        client = await get_client()
+        await client.table("safe_mode_status").upsert({
+            "user_id": user_id,
+            "userbot_id": userbot_id or "",
+            "safe_mode_active": True,
+            "original_delay": original_delay,
+            "safe_delay": safe_delay,
+            "reason": reason,
+            "risk_level": risk_level,
+            "cooldown_until": cooldown_until.isoformat(),
+            "restored_at": None,
+        }, on_conflict="user_id,userbot_id").execute()
+        logger.info(
+            "activate_safe_mode OK uid=%s | reason=%s | delay %d→%d | cooldown=%s",
+            user_id, reason, original_delay, safe_delay, cooldown_until,
+        )
+        return True
+    except Exception as e:
+        logger.warning("activate_safe_mode error uid=%s: %s", user_id, e)
+        return False
+
+
+async def restore_safe_mode(user_id: int) -> bool:
+    try:
+        from datetime import datetime, timezone
+        client = await get_client()
+        await client.table("safe_mode_status").update({
+            "safe_mode_active": False,
+            "restored_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("user_id", user_id).execute()
+        logger.info("restore_safe_mode OK uid=%s", user_id)
+        return True
+    except Exception as e:
+        logger.warning("restore_safe_mode error uid=%s: %s", user_id, e)
+        return False
+
+
+async def get_all_active_safe_modes() -> list:
+    try:
+        client = await get_client()
+        res = await client.table("safe_mode_status").select("*").eq("safe_mode_active", True).execute()
+        return res.data or []
+    except Exception as e:
+        logger.warning("get_all_active_safe_modes error: %s", e)
+        return []
