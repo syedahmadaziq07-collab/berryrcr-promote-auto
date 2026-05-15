@@ -705,43 +705,46 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
         if _bot_instance and (is_immediate or notif_aktif):
             # Kira next run untuk paparan
             job = scheduler.get_job(get_job_id(user_id))
-            next_run_str = ""
+            next_promote_str = "–"
             if job and job.next_run_time:
                 import pytz
                 next_run_local = job.next_run_time.astimezone(pytz.timezone("Asia/Kuala_Lumpur"))
-                next_run_str = f"\n🕐 Seterusnya: *{next_run_local.strftime('%H:%M')}*"
+                next_promote_str = next_run_local.strftime("%H:%M")
 
             if success_count > 0:
                 if is_immediate:
                     await _notify_user(
                         user_id,
-                        f"🚀 *Promote Dimulakan!*\n\n"
-                        f"✅ Mesej pertama telah dihantar ke *{success_count}* kumpulan/channel"
-                        + (f"\n❌ Gagal: *{fail_count}* target" if fail_count else "")
-                        + f"\n⏱️ Seterusnya setiap *{delay} minit*"
-                        + next_run_str,
+                        f"✅ *Promote Success!*\n\n"
+                        f"📦 Sent: *{success_count}* groups\n"
+                        f"💀 Failed: *{fail_count}*\n"
+                        f"🕒 Next Promote: *{next_promote_str}*\n\n"
+                        f"⚡ Auto running...",
                     )
                 else:
                     await _notify_user(
                         user_id,
-                        f"✅ *Promosi Berjaya Dihantar!*\n\n"
-                        f"📤 Berjaya: *{success_count}* kumpulan\n"
-                        f"❌ Gagal: *{fail_count}* kumpulan"
-                        + next_run_str,
+                        f"✅ *Promote Success!*\n\n"
+                        f"📦 Sent: *{success_count}* groups\n"
+                        f"💀 Failed: *{fail_count}*\n"
+                        f"🕒 Next Promote: *{next_promote_str}*\n\n"
+                        f"⚡ Auto running...",
                     )
             elif fail_count > 0:
                 reasons_text = ""
                 if fail_reasons:
                     shown = fail_reasons[:5]
-                    reasons_text = "\n\n*Sebab kegagalan:*\n" + "\n".join(f"• {r}" for r in shown)
+                    reasons_text = "\n\n*Failure reasons:*\n" + "\n".join(f"• {r}" for r in shown)
                     if len(fail_reasons) > 5:
-                        reasons_text += f"\n• ...dan {len(fail_reasons) - 5} lagi"
+                        reasons_text += f"\n• ...and {len(fail_reasons) - 5} more"
                 await _notify_user(
                     user_id,
-                    f"⚠️ *Promosi Gagal Dihantar!*\n\n"
-                    f"Semua *{fail_count}* kumpulan/channel gagal."
+                    f"✅ *Promote Success!*\n\n"
+                    f"📦 Sent: *0* groups\n"
+                    f"💀 Failed: *{fail_count}*\n"
+                    f"🕒 Next Promote: *{next_promote_str}*"
                     + reasons_text +
-                    f"\n\nSemak Status Account melalui 📚 Buat Userbot.",
+                    f"\n\n⚡ Auto running...",
                 )
 
     except Exception as e:
