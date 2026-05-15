@@ -1,12 +1,18 @@
+import logging
+from datetime import datetime, timezone, timedelta
+
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 import database as db
-from keyboards import activate_plan_kb, plan_duration_kb, back_to_menu_kb
+from keyboards import activate_plan_kb, plan_duration_kb, back_to_menu_kb, tambah_bulan_plans_kb
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 _PLAN_ICON  = {"PLUS": "⭐ PLUS", "PRO": "👑 PRO"}
 _PLAN_COINS = {"PLUS": 300, "PRO": 600}
+_MY_TZ      = timezone(timedelta(hours=8))
 
 
 async def _plan_select_text(uid: int) -> str:
@@ -31,6 +37,67 @@ async def _plan_select_text(uid: int) -> str:
         "  ✅ Priority support\n\n"
         f"💰 Balance: *{balance:,} Syiling*"
     )
+
+
+@router.message(Command("setupplan"))
+async def cmd_setupplan(message: Message):
+    uid = message.from_user.id
+    logger.info("[SETUPPLAN] command_invoked | user_id=%s", uid)
+
+    try:
+        userbot_rec = await db.get_userbot(uid)
+
+        if not userbot_rec:
+            logger.info("[SETUPPLAN] no_userbot | user_id=%s", uid)
+            await message.answer(
+                "⚠️ *Korang belum ada Userbot!*\n\n"
+                "Beli userbot dulu sebelum activate plan.\n\n"
+                "Tekan 🛒 *Kedai* → 🛍 *Buy Userbot* untuk beli sekarang.",
+                parse_mode="Markdown",
+            )
+            return
+
+        balance = await db.get_wallet(uid)
+        sub     = await db.get_active_subscription(uid)
+
+        if sub:
+            plan_now = sub.get("plan", "—")
+            expires  = sub.get("expires_at", "")
+            if expires:
+                try:
+                    if isinstance(expires, str):
+                        expires = expires.replace("Z", "+00:00")
+                        exp_dt  = datetime.fromisoformat(expires).astimezone(_MY_TZ)
+                    else:
+                        exp_dt  = expires.astimezone(_MY_TZ)
+                    expires_display = exp_dt.strftime("%d %b %Y")
+                except Exception:
+                    expires_display = str(expires)[:10]
+            else:
+                expires_display = "—"
+            status_line = (
+                f"📦 Plan Semasa: *{plan_now}*\n"
+                f"📅 Tamat: *{expires_display}*\n\n"
+            )
+        else:
+            status_line = "📦 Plan Semasa: *Tiada*\n\n"
+
+        text = (
+            "🛠️ *Setup Month & Plan*\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            f"{status_line}"
+            f"💰 Wallet: *{balance:,} Syiling*\n\n"
+            "Pilih plan yang korang nak aktifkan:"
+        )
+        logger.info("[SETUPPLAN] showing_plan_menu | user_id=%s | current_plan=%s", uid, sub["plan"] if sub else "none")
+        await message.answer(text, parse_mode="Markdown", reply_markup=tambah_bulan_plans_kb())
+
+    except Exception as e:
+        logger.exception("[SETUPPLAN] error | user_id=%s | error=%s", uid, e)
+        await message.answer(
+            "❌ *Ralat semasa load menu.*\n\nSila cuba lagi atau hubungi @berryrcr.",
+            parse_mode="Markdown",
+        )
 
 
 @router.message(F.text == "🛒 Beli Userbot")

@@ -88,6 +88,10 @@ Gunakan dengan berhati-hati:
 *Kami tidak bertanggungjawab atas tindakan Telegram.*
 
 ━━━━━━━━━━━━━━━
+*Shortcuts:*
+• /setupplan — Upgrade atau renew pelan PLUS/PRO
+
+━━━━━━━━━━━━━━━
 📞 *Sokongan:* @berryrcr
 """
 

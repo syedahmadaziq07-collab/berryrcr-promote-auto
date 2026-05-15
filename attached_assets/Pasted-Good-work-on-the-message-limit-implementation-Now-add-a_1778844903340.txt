@@ -1,0 +1,57 @@
+Good work on the message limit implementation. Now add a quick `/setupplan` command shortcut to streamline the upgrade flow.
+
+🎯 OBJECTIVE:
+When PLUS users hit the 3-message limit and see the upgrade prompt, they should be able to quickly access the plan upgrade menu via `/setupplan` command.
+
+📋 IMPLEMENTATION:
+
+**1. Locate Existing Plan/Subscription Handler**
+   - Find where users normally go to buy/renew PLUS or PRO plans
+   - This is likely in `bot/handlers/subscription.py` or `bot/handlers/plan_flow.py`
+   - Identify the entry point function and callback keyboard
+
+**2. Create `/setupplan` Command Handler**
+   Location: Wherever plan handlers are located (likely subscription.py or plan_flow.py)
+   
+   Requirements:
+   - Register as bot command: `/setupplan`
+   - Check if user already has active userbot (required to buy plan)
+   - If no userbot → show message: "Beli userbot dulu sebelum activate plan. /kedai"
+   - If has userbot → show plan selection menu (PLUS vs PRO options)
+   - Reuse existing plan selection keyboard/flow
+   - Should match the existing "Setup Month & Plan" flow
+
+**3. Register Command**
+   - Add to bot command handlers (likely in main.py or where other commands are registered)
+   - Format: `dp.message.register(cmd_setupplan, Command("setupplan"))`
+   - Or however commands are currently registered in this bot
+
+**4. Update Command List**
+   If there's a `/help` or command menu, add:
+/setupplan — Upgrade or renew PLUS/PRO plan
+
+**CONSTRAINTS:**
+- ❌ Do NOT create new plan purchase logic
+- ✅ REUSE existing plan selection flow
+- ✅ Just create a shortcut command to existing functionality
+- ✅ Keep it simple — 1 command handler, route to existing menu
+
+**EXPECTED FLOW:**
+
+User types `/setupplan` →
+1. Bot checks: does user have userbot?
+2. If NO → "Beli userbot dulu. /kedai"
+3. If YES → Show existing plan menu (PLUS/PRO selection with duration options)
+4. User continues with normal plan purchase flow
+
+**CODE STYLE:**
+Follow existing bot patterns for command handlers. Keep logging consistent:
+```python
+logger.info(f"[SETUPPLAN] command_invoked | user_id={uid}")
+```
+
+**FILES TO MODIFY:**
+- Likely 1-2 files only (subscription.py or plan_flow.py + main.py for registration)
+- Show me which files you modified
+
+**START NOW. Find the existing plan flow and create the shortcut command.**
