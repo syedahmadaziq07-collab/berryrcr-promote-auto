@@ -20,51 +20,52 @@ _NOTIFY_COOLDOWN_SECONDS = 300  # 5 minit
 
 MY_TZ = pytz.timezone("Asia/Kuala_Lumpur")
 
-WELCOME_MESSAGE = """
-🤖 *Welcome to Promote Auto by @berryrcr\\_bot*
-━━━━━━━━━━━━━━━
+DAYS_MY = ["Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu", "Ahad"]
 
-⚡️ *Quick Start Guide*
+TOTAL_USERS = 302
+ACTIVE_CUSTOMERS = 257
 
-1️⃣ Topup syiling dekat 🛒 Kedai
-2️⃣ Buy Userbot untuk unlock access
-3️⃣ Activate plan korang (PLUS / PRO) dekat 🛠️ Setup Month & Plan
-4️⃣ Connect akaun Telegram dekat 📚 Buat Userbot
-5️⃣ Masuk ⚙️ Tetapan
-6️⃣ Setup 👥 Manage Group
-7️⃣ Setup 📝 Edit Message
-8️⃣ Setup ⏱️ Delay Timer
-9️⃣ Tekan 🚀 Start Promote
 
-Done ✅
-Bot akan auto running ikut timer yang korang set 💨
+def _build_welcome(user_id: int, username: str, full_name: str) -> str:
+    now = datetime.now(MY_TZ)
+    day_name = DAYS_MY[now.weekday()]
+    date_str = now.strftime("%-d %b %Y")
+    time_str = now.strftime("%I:%M %p")
+    uname = f"@{username}" if username else "—"
+    display_name = full_name or uname
 
-━━━━━━━━━━━━━━━
-
-🧠 *Apa yang bot ni boleh buat?*
-
-• Auto promote group & channel
-• Rotate multiple message auto
-• 🤖 Auto Reply system
-• 🧪 Advanced Mode features
-• ⏱️ Custom delay timer
-• 📩 Backup login recovery
-• 🎁 Referral reward system
-• 📡 Live status monitoring
-
-━━━━━━━━━━━━━━━
-
-⚠️ *Heads Up:*
-
-• Userbot & subscription plan ialah benda berbeza
-• Bot hanya send ke group/channel yang korang pilih sendiri
-• Bot TAK auto join atau scrape random group
-• Simpan ID Userbot korang untuk backup access kalau account logout/limit
-
-━━━━━━━━━━━━━━━
-
-🌐 Promote Auto by @berryrcr\\_bot
-"""
+    return (
+        f"*Welcome to Promote Auto by @berryrcr\\_bot*\n"
+        f"_Updated: {day_name}, {date_str} {time_str}_\n\n"
+        f"👋 Hi {display_name}\\!\n\n"
+        f"👤 *Account*\n"
+        f"• ID: `{user_id}`\n"
+        f"• Username: {uname}\n\n"
+        f"📊 *Store Stats*\n"
+        f"• Total Users: {TOTAL_USERS}\n"
+        f"• Active Customers: {ACTIVE_CUSTOMERS}\n\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"⚡️ *Quick Start Guide*\n\n"
+        f"1️⃣ Topup syiling dekat 🛒 Kedai\n"
+        f"2️⃣ Buy Userbot untuk unlock access\n"
+        f"3️⃣ Activate plan korang \\(PLUS / PRO\\) dekat 🛠️ Setup Month & Plan\n"
+        f"4️⃣ Connect akaun Telegram dekat 📚 Buat Userbot\n"
+        f"5️⃣ Masuk ⚙️ Tetapan\n"
+        f"6️⃣ Setup 👥 Manage Group\n"
+        f"7️⃣ Setup 📝 Edit Message\n"
+        f"8️⃣ Setup ⏱️ Delay Timer\n"
+        f"9️⃣ Tekan 🚀 Start Promote\n\n"
+        f"Done ✅\n"
+        f"Bot akan auto running ikut timer yang korang set 💨\n\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"⚠️ *Heads Up:*\n\n"
+        f"• Userbot & subscription plan ialah benda berbeza\n"
+        f"• Bot hanya send ke group/channel yang korang pilih sendiri\n"
+        f"• Bot TAK auto join atau scrape random group\n"
+        f"• Simpan ID Userbot korang untuk backup access kalau account logout/limit\n\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"🌐 Promote Auto by @berryrcr\\_bot"
+    )
 
 
 async def _notify_admin_start(
@@ -133,14 +134,19 @@ async def _notify_admin_start(
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
+    user = message.from_user
+    welcome_text = _build_welcome(
+        user_id=user.id,
+        username=user.username or "",
+        full_name=user.full_name or "",
+    )
     # ── Hantar welcome kepada customer dulu ──
     await message.answer(
-        WELCOME_MESSAGE,
-        parse_mode="Markdown",
+        welcome_text,
+        parse_mode="MarkdownV2",
         reply_markup=main_menu_kb(),
     )
 
-    user = message.from_user
     try:
         is_new = await db.is_new_user(user.id)
         await db.ensure_user(user.id, user.username or "", user.full_name or "")
