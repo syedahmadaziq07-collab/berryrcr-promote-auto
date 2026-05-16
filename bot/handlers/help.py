@@ -5,103 +5,123 @@ from keyboards import back_to_menu_kb
 router = Router()
 
 HELP_TEXT = """
-⚠️ *Bantuan — Promote Auto by @berryrcr*
+⚠️ *Help Center — Promote Auto by @berryrcr*
 
 ━━━━━━━━━━━━━━━
-*Cara guna (ikut urutan):*
 
-1️⃣ *Topup Syiling*
-   🛒 Kedai → 💳 Topup Syiling
-   Hubungi @berryrcr dengan bukti bayaran.
+⚡️ *Cara Guna \\(ikut flow latest\\)*
 
-2️⃣ *Beli Userbot*
-   🛒 Kedai → 🛍 Beli Userbot
-   Sistem janakan ID Userbot unik untuk anda.
+1️⃣ *Topup syiling*
+🛒 Shop Zone → 💳 Reload Syiling💸
 
-3️⃣ *Aktifkan Pelan*
-   📚 Buat Userbot → pilih PLUS atau PRO.
+2️⃣ *Buy Userbot*
+🛒 Shop Zone → 🛍 Buy Userbot
 
-4️⃣ *Sambung Akaun*
-   🔑 Log Masuk Token → masukkan nombor & OTP.
+• 300 Syiling
+• Lifetime access
+• 1 account only
 
-5️⃣ *Pilih Kumpulan*
-   ⚙️ Tetapan → 👥 Pilih Kumpulan.
+3️⃣ *Activate Plan*
+🛠️ Setup Month & Plan
 
-6️⃣ *Tetapkan Mesej & Jarak Masa*
-   ⚙️ Tetapan → 📝 Tetapkan Mesej & ⏱️ Tetapkan Jarak Masa.
+Pilih:
+💎 PLUS atau 🚀 PRO
 
-7️⃣ *Mula Promote*
-   ⚙️ Tetapan → 🚀 Mula Promote.
+4️⃣ *Connect Telegram Account*
+📚 Create Userbot
 
-━━━━━━━━━━━━━━━
-*Perbezaan Userbot & Pelan:*
+Masukkan nombor Telegram & OTP/login code 🔐
 
-🤖 *Userbot* = akaun robot anda (ID unik)
-📋 *Pelan* = langganan untuk aktifkan ciri promote
+5️⃣ *Setup Group*
+⚙️ Control Panel → 👥 Manage Group
 
-Userbot dan pelan adalah *dua perkara berbeza*.
-Anda perlu beli userbot dahulu, kemudian aktifkan pelan.
+Pilih group/channel korang sendiri untuk promote\.
 
-━━━━━━━━━━━━━━━
-*Pelan yang Tersedia:*
+6️⃣ *Setup Promote Message*
+⚙️ Control Panel → 📝 Edit Message
 
-⚡ *PLUS — 300 Syiling (RM3)*
-• Auto promote ke group pilihan
-• Footer wajib @berryrcr
-• 📩 Backup Email (confirmation & recovery notice)
-• 🔑 Recover Token access
-• Basic auto recovery notification
+7️⃣ *Setup Delay Timer*
+⚙️ Control Panel → ⏱️ Delay Timer
 
-👑 *PRO — 600 Syiling (RM6)*
-• Semua feature PLUS, ditambah:
-• Boleh tutup footer
-• Lower delay limit
-• More group / channel slot
-• More saved messages
-• Smart message rotate
-• Advanced Mode (Lanjutan 🧠)
-• Smart anti-flood protection
-• Priority scheduler
-• Live monitoring
-• 📩 Backup Email (confirmation & recovery notice)
-• 🔑 Recover Token access
-• Keutamaan sokongan
+Recommended:
+30–60 minit untuk lebih selamat 🛡️
+
+8️⃣ *Start Promote*
+⚙️ Control Panel → 🚀 Start Promote
+
+Done ✅
+Bot akan auto running ikut timer & schedule korang 💨
 
 ━━━━━━━━━━━━━━━
-*Harga Syiling:*
-• 300 Syiling = RM3
-• 600 Syiling = RM6
-• 900 Syiling = RM8
-• 1,200 Syiling = RM11
+
+🧩 *Userbot vs Subscription Plan*
+
+🧩 *Userbot*
+= Lifetime access untuk connect Telegram account
+
+💎 *Subscription Plan*
+= Unlock feature & auto promote system
+
+Userbot dan plan ialah dua benda berbeza\.
 
 ━━━━━━━━━━━━━━━
-⚠️ *Risiko Auto-Promote:*
 
-• Akaun boleh dihadkan sementara (flood wait)
-• Akaun boleh diblok dari hantar mesej ke group
-• Dalam kes teruk, akaun boleh dibanned
+💎 *PLAN PLUS*
 
-Gunakan dengan berhati-hati:
-• Jangan tetapkan jarak masa terlalu pendek (min. 30 minit)
-• Jangan pilih terlalu banyak group sekaligus
+Perfect untuk normal daily promote 🔥
 
-*Kami tidak bertanggungjawab atas tindakan Telegram.*
-
-━━━━━━━━━━━━━━━
-*Shortcuts:*
-• /setupplan — Upgrade atau renew pelan PLUS/PRO
+• Max 3 saved promote message
+• Basic auto promote system
+• Standard safe mode protection
+• Smooth untuk casual seller
+• Easy & simple setup
 
 ━━━━━━━━━━━━━━━
-📞 *Sokongan:* @berryrcr
+
+🚀 *PLAN PRO*
+
+Built untuk serious seller & heavy promote ⚡
+
+• Unlimited rotate message
+• Smarter auto promote system
+• Better anti\\-flood & safe mode
+• More stable untuk banyak group
+• Faster & cleaner promote performance
+• Future premium feature unlock 🔥
+
+━━━━━━━━━━━━━━━
+
+🛡️ *Auto Safe Mode*
+
+Sistem akan auto protect account korang jika detect:
+• FloodWait
+• PeerFlood
+• Too many failed sends
+
+Bot akan auto:
+• naikkan delay sementara
+• protect account
+• restore balik setting asal bila stable ✅
+
+━━━━━━━━━━━━━━━
+
+⚠️ *Heads Up*
+
+• Bot hanya send ke group/channel yang korang pilih sendiri
+• Bot TAK auto join atau scrape random group
+• Simpan ID Userbot korang untuk backup access
+• Elakkan delay terlalu rendah untuk kurangkan risiko limit
+
+━━━━━━━━━━━━━━━
 """
 
 
 @router.message(F.text == "⚠️ Help Center")
 async def msg_help(message: Message):
-    await message.answer(HELP_TEXT, parse_mode="Markdown", reply_markup=back_to_menu_kb())
+    await message.answer(HELP_TEXT, parse_mode="MarkdownV2", reply_markup=back_to_menu_kb())
 
 
 @router.callback_query(F.data == "help")
 async def cb_help(callback: CallbackQuery):
-    await callback.message.edit_text(HELP_TEXT, parse_mode="Markdown", reply_markup=back_to_menu_kb())
+    await callback.message.edit_text(HELP_TEXT, parse_mode="MarkdownV2", reply_markup=back_to_menu_kb())
     await callback.answer()
