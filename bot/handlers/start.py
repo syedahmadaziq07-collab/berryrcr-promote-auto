@@ -1,3 +1,4 @@
+import html
 import logging
 import time
 from datetime import datetime
@@ -31,24 +32,27 @@ def _build_welcome(user_id: int, username: str, full_name: str) -> str:
     day_name = DAYS_MY[now.weekday()]
     date_str = now.strftime("%-d %b %Y")
     time_str = now.strftime("%I:%M %p")
-    uname = f"@{username}" if username else "—"
-    display_name = full_name or uname
+
+    # Escape all dynamic/user-controlled content for HTML
+    safe_name = html.escape(full_name.strip()) if full_name and full_name.strip() else ""
+    safe_uname = f"@{html.escape(username)}" if username else "—"
+    display_name = safe_name or safe_uname
 
     return (
-        f"*Welcome to Promote Auto by @berryrcr\\_bot*\n"
-        f"_Updated: {day_name}, {date_str} {time_str}_\n\n"
-        f"👋 Hi {display_name}\\!\n\n"
-        f"👤 *Account*\n"
-        f"• ID: `{user_id}`\n"
-        f"• Username: {uname}\n\n"
-        f"📊 *Store Stats*\n"
+        f"<b>Welcome to Promote Auto by @berryrcr_bot</b>\n"
+        f"<i>Updated: {day_name}, {date_str} {time_str}</i>\n\n"
+        f"👋 Hi {display_name}!\n\n"
+        f"👤 <b>Account</b>\n"
+        f"• ID: <code>{user_id}</code>\n"
+        f"• Username: {safe_uname}\n\n"
+        f"📊 <b>Store Stats</b>\n"
         f"• Total Users: {TOTAL_USERS}\n"
         f"• Active Customers: {ACTIVE_CUSTOMERS}\n\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"⚡️ *Quick Start Guide*\n\n"
+        f"⚡️ <b>Quick Start Guide</b>\n\n"
         f"1️⃣ Topup syiling dekat 🛒 Kedai\n"
         f"2️⃣ Buy Userbot untuk unlock access\n"
-        f"3️⃣ Activate plan korang \\(PLUS / PRO\\) dekat 🛠️ Setup Month & Plan\n"
+        f"3️⃣ Activate plan korang (PLUS / PRO) dekat 🛠️ Setup Month &amp; Plan\n"
         f"4️⃣ Connect akaun Telegram dekat 📚 Buat Userbot\n"
         f"5️⃣ Masuk ⚙️ Tetapan\n"
         f"6️⃣ Setup 👥 Manage Group\n"
@@ -58,13 +62,13 @@ def _build_welcome(user_id: int, username: str, full_name: str) -> str:
         f"Done ✅\n"
         f"Bot akan auto running ikut timer yang korang set 💨\n\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"⚠️ *Heads Up:*\n\n"
-        f"• Userbot & subscription plan ialah benda berbeza\n"
+        f"⚠️ <b>Heads Up:</b>\n\n"
+        f"• Userbot &amp; subscription plan ialah benda berbeza\n"
         f"• Bot hanya send ke group/channel yang korang pilih sendiri\n"
         f"• Bot TAK auto join atau scrape random group\n"
         f"• Simpan ID Userbot korang untuk backup access kalau account logout/limit\n\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"🌐 Promote Auto by @berryrcr\\_bot"
+        f"🌐 Promote Auto by @berryrcr_bot"
     )
 
 
@@ -143,7 +147,7 @@ async def cmd_start(message: Message, bot: Bot):
     # ── Hantar welcome kepada customer dulu ──
     await message.answer(
         welcome_text,
-        parse_mode="MarkdownV2",
+        parse_mode="HTML",
         reply_markup=main_menu_kb(),
     )
 
