@@ -884,6 +884,18 @@ async def get_user_count() -> int:
     return res.count or 0
 
 
+async def get_active_customer_count() -> int:
+    """Kiraan unique user dengan active subscription PLUS/PRO/PREMIUM."""
+    client = await get_client()
+    res = (
+        await client.table("subscriptions")
+        .select("user_id", count="exact")
+        .eq("active", True)
+        .execute()
+    )
+    return res.count or 0
+
+
 async def get_recent_users(limit: int = 10) -> list:
     client = await get_client()
     res = (

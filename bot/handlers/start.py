@@ -23,11 +23,17 @@ MY_TZ = pytz.timezone("Asia/Kuala_Lumpur")
 
 DAYS_MY = ["Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu", "Ahad"]
 
-TOTAL_USERS = 302
-ACTIVE_CUSTOMERS = 257
+BASE_TOTAL_USERS = 302
+BASE_ACTIVE_CUSTOMERS = 257
 
 
-def _build_welcome(user_id: int, username: str, full_name: str) -> str:
+def _build_welcome(
+    user_id: int,
+    username: str,
+    full_name: str,
+    total_users: int = BASE_TOTAL_USERS,
+    active_customers: int = BASE_ACTIVE_CUSTOMERS,
+) -> str:
     now = datetime.now(MY_TZ)
     day_name = DAYS_MY[now.weekday()]
     date_str = now.strftime("%-d %b %Y")
@@ -46,8 +52,8 @@ def _build_welcome(user_id: int, username: str, full_name: str) -> str:
         f"• ID: <code>{user_id}</code>\n"
         f"• Username: {safe_uname}\n\n"
         f"📊 <b>Store Stats</b>\n"
-        f"• Total Users: {TOTAL_USERS}\n"
-        f"• Active Customers: {ACTIVE_CUSTOMERS}\n\n"
+        f"• Total Users: {total_users}\n"
+        f"• Active Customers: {active_customers}\n\n"
         f"━━━━━━━━━━━━━━━\n\n"
         f"⚡️ <b>Quick Start Guide</b>\n\n"
         f"1️⃣ Topup syiling dekat 🛒 Kedai\n"
@@ -139,10 +145,24 @@ async def _notify_admin_start(
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
     user = message.from_user
+
+    # ── Fetch live stats (dengan fallback kepada base jika DB gagal) ──
+    try:
+        db_users = await db.get_user_count()
+        db_active = await db.get_active_customer_count()
+        total_users = max(db_users, BASE_TOTAL_USERS)
+        active_customers = max(db_active, BASE_ACTIVE_CUSTOMERS)
+    except Exception as e:
+        logger.warning("[START] gagal fetch stats, guna base values: %s", e)
+        total_users = BASE_TOTAL_USERS
+        active_customers = BASE_ACTIVE_CUSTOMERS
+
     welcome_text = _build_welcome(
         user_id=user.id,
         username=user.username or "",
         full_name=user.full_name or "",
+        total_users=total_users,
+        active_customers=active_customers,
     )
     # ── Hantar welcome kepada customer dulu ──
     await message.answer(
