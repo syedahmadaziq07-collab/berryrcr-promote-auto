@@ -11,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import database as db
 from config import ADMIN_ID, USERBOT_PRICE, WEBSITE_URL, COIN_PLANS
+from services.order_notifier import notify_new_order
 from keyboards import (
     kedai_menu_kb,
     buy_userbot_lifetime_kb,
@@ -282,8 +283,9 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
         await callback.message.answer("⚠️ Ralat data. Sila pilih pakej semula.")
         return
 
-    uid      = callback.from_user.id
-    username = callback.from_user.username or str(uid)
+    uid       = callback.from_user.id
+    username  = callback.from_user.username or ""
+    full_name = callback.from_user.full_name or ""
 
     # Jana order_id DULU — tidak bergantung pada DB
     import random as _random
@@ -295,7 +297,7 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
         await db.create_topup_request(
             order_id=order_id,
             user_id=uid,
-            username=username,
+            username=username or str(uid),
             coins=coins,
             amount_rm=amount,
         )
@@ -307,6 +309,22 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
         )
 
     await state.update_data(order_id=order_id, coins=coins, amount=amount)
+
+    # ── Notify admin: NEW ORDER (sekali per order_id, best-effort) ──
+    try:
+        await notify_new_order(
+            bot,
+            order_id=order_id,
+            user_id=uid,
+            full_name=full_name,
+            username=username,
+            item=f"Reload Syiling — {coins:,} Syiling",
+            coins=coins,
+            amount_rm=amount,
+            status="⏳ Waiting Payment Proof",
+        )
+    except Exception as _notify_err:
+        logger.warning("[ORDER_NOTIFY] exception dalam notify_new_order: %s", _notify_err)
 
     caption = (
         "💳 *Payment Details*\n"
