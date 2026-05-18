@@ -24,7 +24,7 @@ async def _build_referral_text(uid: int, bot_username: str) -> str:
         "korang dapat *100 Syiling* — kawan korang pun dapat *100 Syiling*! 🤑\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"🔗 *Link Referral Korang:*\n"
-        f"`{link}`\n\n"
+        f"```\n{link}\n```\n\n"
         f"📊 *Stat Korang:*\n"
         f"👥 Jemputan Berjaya: *{stats['paid_count']} orang*\n"
         f"⏳ Pending (belum aktif plan): *{stats['pending_count']} orang*\n"

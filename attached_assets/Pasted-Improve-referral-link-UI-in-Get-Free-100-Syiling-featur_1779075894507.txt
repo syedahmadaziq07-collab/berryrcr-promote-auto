@@ -1,0 +1,183 @@
+Improve referral link UI in 🎁 Get Free 100 Syiling feature.
+
+PROBLEM:
+Referral link displayed as plain text - hard to copy on mobile.
+Users need to manually select the long URL.
+
+SOLUTION:
+Format referral link as Telegram code block for easy tap-to-copy.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. FIND THE HANDLER:
+   Locate "Get Free 100 Syiling" or referral link display handler.
+   Look for text containing: "Link Referral Korang" or "t.me/berryrcr_bot?start=REF_"
+
+2. CURRENT FORMAT (WRONG):
+🔗 Link Referral Korang:
+https://t.me/berryrcr_bot?start=REF_5363369071
+   Problem: Plain text, hard to copy
+
+3. NEW FORMAT (CORRECT):
+   
+   If using HTML parse_mode:
+```python
+   message = (
+       "🎁 <b>GET FREE 100 SYILING</b>\n\n"
+       "Share link ni dengan kawan korang!\n\n"
+       "🔗 <b>Link Referral Korang:</b>\n"
+       "<pre>https://t.me/berryrcr_bot?start=REF_5363369071</pre>\n\n"
+       "📊 <b>Stats Korang:</b>\n"
+       "• Total referrals: 5\n"
+       "• Syiling earned: 500"
+   )
+```
+   
+   If using Markdown parse_mode:
+```python
+   message = (
+       "🎁 *GET FREE 100 SYILING*\n\n"
+       "Share link ni dengan kawan korang!\n\n"
+       "🔗 *Link Referral Korang:*\n"
+       f"```\nhttps://t.me/berryrcr_bot?start=REF_{user_id}\n```\n\n"
+       "📊 *Stats Korang:*\n"
+       "• Total referrals: 5\n"
+       "• Syiling earned: 500"
+   )
+```
+
+4. IMPLEMENTATION:
+
+   Key changes:
+   - Wrap link in <pre>...</pre> tags (HTML mode)
+   - OR wrap in triple backticks (Markdown mode)
+   - Link stays on single line (no line breaks)
+   - Dynamic user_id still works: f"REF_{user_id}"
+   
+   Example with HTML (recommended):
+```python
+   referral_link = f"https://t.me/berryrcr_bot?start=REF_{user_id}"
+   
+   message = (
+       "🎁 <b>GET FREE 100 SYILING</b>\n\n"
+       "Share link ni dengan kawan korang! "
+       "Setiap kawan yang sign up guna link korang, "
+       "both of you dapat 100 syiling free. 🎉\n\n"
+       f"🔗 <b>Link Referral Korang:</b>\n"
+       f"<pre>{referral_link}</pre>\n\n"
+       "📊 <b>Stats Korang:</b>\n"
+       f"• Total referrals: {total_refs}\n"
+       f"• Syiling earned: {syiling_earned}"
+   )
+   
+   await message.reply(message, parse_mode=ParseMode.HTML)
+```
+
+5. VERIFY PARSE MODE:
+
+   Check current parse_mode in handler:
+   - If using ParseMode.HTML → use <pre> tags
+   - If using ParseMode.MARKDOWN or MarkdownV2 → use backticks
+   - If no parse_mode specified → add parse_mode=ParseMode.HTML
+
+6. MOBILE BEHAVIOR:
+
+   After fix, on Telegram mobile:
+   - User sees grey code block box
+   - Tap on link → automatically selects full URL
+   - Copy button appears
+   - Easy one-tap copy ✅
+
+7. TESTING:
+
+   Test on:
+   - Telegram mobile (Android/iOS)
+   - Telegram desktop
+   - Dark mode
+   - Light mode
+   
+   Verify:
+   - Link displays in code block
+   - Link doesn't break to multiple lines
+   - Tap-to-copy works
+   - Readable in both themes
+
+8. SAFETY RULES:
+
+   ✅ DO:
+   - Format link as code block
+   - Keep referral_link dynamic
+   - Verify parse_mode syntax
+   - Test on mobile
+   
+   ❌ DON'T:
+   - Don't change referral logic
+   - Don't modify referral tracking
+   - Don't change database queries
+   - Don't modify stats calculation
+   - Don't break other text formatting
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXPECTED OUTPUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Before:
+🔗 Link Referral Korang:
+https://t.me/berryrcr_bot?start=REF_5363369071
+[plain text, hard to copy]
+
+After:
+🔗 Link Referral Korang:
+┌─────────────────────────────────────────┐
+│https://t.me/berryrcr_bot?start=REF_5363369071│
+└─────────────────────────────────────────┘
+[grey code block, tap to copy]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILES TO MODIFY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Likely files:
+- bot/handlers/referral.py (or similar)
+- bot/handlers/free_coins.py
+- bot/handlers/wallet.py
+
+Look for handler containing "Get Free" or "Referral" text.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Show:
+- File modified
+- Before/after code snippet
+- Parse mode used
+- Test result (screenshot if possible)
+
+Don't show:
+- Full file content
+- Unrelated handlers
+- Other features
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+START IMPLEMENTATION NOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Find and update referral link display to use <pre> tags or code block formatting for easy tap-to-copy on mobile. Keep all logic unchanged, only improve UI formatting.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ QUICK SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Change:
+python# Before
+message = f"🔗 Link:\n{link}"
+
+# After  
+message = f"🔗 Link:\n<pre>{link}</pre>"
+Result:
+
+✅ Tap to copy
+✅ No line breaks
+✅ Works on mobile
+✅ Dark mode friendly
