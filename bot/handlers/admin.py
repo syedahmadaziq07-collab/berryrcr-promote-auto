@@ -69,6 +69,7 @@ async def cmd_admin(message: Message):
         "/approve\\_topup `<id>` — Lulus topup\n"
         "/reject\\_topup `<id>` — Tolak topup\n"
         "/check\\_expiry — Trigger expiry notification check\n"
+        "/daily\\_report — Hantar report hari ini sekarang\n"
     )
     await message.answer(text, parse_mode="Markdown")
     await db.write_admin_log(ADMIN_ID, "view_dashboard")
@@ -937,3 +938,46 @@ async def cmd_check_expiry(message: Message):
     except Exception as e:
         await wait.delete()
         await message.answer(f"❌ Ralat semasa check: `{e}`", parse_mode="Markdown")
+
+
+# ──────────────────────────────────────────────────────────────
+# /daily_report — Manual trigger daily admin report (hari ini / semalam)
+# ──────────────────────────────────────────────────────────────
+
+@router.message(Command("daily_report"))
+@admin_only
+async def cmd_daily_report(message: Message):
+    from services import daily_report_service
+    import pytz
+    from datetime import datetime, timedelta
+
+    parts = message.text.split(maxsplit=1)
+    _MY_TZ = pytz.timezone("Asia/Kuala_Lumpur")
+
+    if len(parts) == 2:
+        date_input = parts[1].strip()
+        try:
+            datetime.strptime(date_input, "%Y-%m-%d")
+            target_date = date_input
+        except ValueError:
+            await message.answer(
+                "⚠️ Format tarikh salah.\n\nGuna: `/daily_report` atau `/daily_report YYYY-MM-DD`\n"
+                "Contoh: `/daily_report 2026-05-19`",
+                parse_mode="Markdown",
+            )
+            return
+    else:
+        target_date = (datetime.now(_MY_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    wait = await message.answer(f"⏳ Menjana report untuk {target_date}...")
+    try:
+        await daily_report_service.run_daily_report(target_date=target_date)
+        await wait.delete()
+        await message.answer(
+            f"✅ Report untuk *{target_date}* berjaya dihantar ke admin.",
+            parse_mode="Markdown",
+        )
+        await db.write_admin_log(ADMIN_ID, f"manual_daily_report: date={target_date}")
+    except Exception as e:
+        await wait.delete()
+        await message.answer(f"❌ Ralat semasa jana report: `{e}`", parse_mode="Markdown")

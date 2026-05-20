@@ -14,6 +14,7 @@ from services.sqlite_storage import SQLiteStorage
 from services.subscription_checker import check_expired_subscriptions
 from services import expiry_notifier
 from services import safe_mode_checker
+from services import daily_report_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -256,6 +257,9 @@ async def main():
     scheduler_service.start_scheduler()
     expiry_notifier.set_bot(bot)
     safe_mode_checker.set_bot(bot)
+    daily_report_service.set_bot(bot)
+    daily_report_service.register_daily_report_job()
+    logger.info("Daily report scheduler didaftarkan — trigger: 00:00 Asia/Kuala_Lumpur")
     try:
         await scheduler_service.restore_running_promos()
         logger.info("Scheduler dan promo jobs dipulihkan.")

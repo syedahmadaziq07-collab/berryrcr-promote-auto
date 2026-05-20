@@ -1057,6 +1057,68 @@ async def get_daily_reports(limit: int = 7):
     return res.data or []
 
 
+async def get_new_users_count_for_date(date_my: str) -> int:
+    """
+    Kiraan pengguna baru yang daftar pada tarikh tertentu (dalam timezone MY).
+
+    date_my: "YYYY-MM-DD" dalam timezone Asia/Kuala_Lumpur (UTC+8).
+    Supabase menyimpan created_at dalam UTC — tukar sempadan tarikh MY ke UTC sebelum query.
+    """
+    import pytz as _pytz
+    _tz = _pytz.timezone("Asia/Kuala_Lumpur")
+    from datetime import datetime as _dt
+    try:
+        day_start_my = _tz.localize(_dt.strptime(date_my, "%Y-%m-%d"))
+        day_end_my   = day_start_my + timedelta(days=1)
+        start_utc    = day_start_my.astimezone(timezone.utc).isoformat()
+        end_utc      = day_end_my.astimezone(timezone.utc).isoformat()
+    except Exception as e:
+        logger.warning("get_new_users_count_for_date: parse error date=%s: %s", date_my, e)
+        return 0
+
+    client = await get_client()
+    res = (
+        await client.table(_USERS)
+        .select("id", count="exact")
+        .gte("created_at", start_utc)
+        .lt("created_at", end_utc)
+        .execute()
+    )
+    return res.count or 0
+
+
+async def get_approved_orders_for_date(date_my: str) -> list:
+    """
+    Senarai topup_requests yang diluluskan (status='approved') pada tarikh MY tertentu.
+
+    date_my: "YYYY-MM-DD" dalam timezone Asia/Kuala_Lumpur (UTC+8).
+    Gunakan approved_at untuk menentukan tarikh kelulusan.
+    """
+    import pytz as _pytz
+    _tz = _pytz.timezone("Asia/Kuala_Lumpur")
+    from datetime import datetime as _dt
+    try:
+        day_start_my = _tz.localize(_dt.strptime(date_my, "%Y-%m-%d"))
+        day_end_my   = day_start_my + timedelta(days=1)
+        start_utc    = day_start_my.astimezone(timezone.utc).isoformat()
+        end_utc      = day_end_my.astimezone(timezone.utc).isoformat()
+    except Exception as e:
+        logger.warning("get_approved_orders_for_date: parse error date=%s: %s", date_my, e)
+        return []
+
+    client = await get_client()
+    res = (
+        await client.table("topup_requests")
+        .select("order_id, user_id, username, coins, amount_rm, approved_at")
+        .eq("status", "approved")
+        .gte("approved_at", start_utc)
+        .lt("approved_at", end_utc)
+        .order("approved_at", desc=False)
+        .execute()
+    )
+    return res.data or []
+
+
 # ─────────────────────────────────────────────
 # TOPUP REQUESTS (topup_requests table)
 # ─────────────────────────────────────────────
