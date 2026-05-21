@@ -9,8 +9,22 @@ from services import scheduler_service
 logger = logging.getLogger(__name__)
 router = Router()
 
+# Per-user lock — elak race condition spam click "Mula Promote"
+_start_locks: dict[int, asyncio.Lock] = {}
+
 
 async def _do_start_promote(uid: int, send_fn):
+    # ── Guard: elak spam click race condition ──
+    if uid not in _start_locks:
+        _start_locks[uid] = asyncio.Lock()
+
+    if _start_locks[uid].locked():
+        logger.info(
+            "[PROMOTE] promote_loop_skipped_duplicate — uid=%s | start already in progress, skip",
+            uid,
+        )
+        return
+
     sub = await db.get_active_subscription(uid)
     if not sub:
         await send_fn(
@@ -49,46 +63,53 @@ async def _do_start_promote(uid: int, send_fn):
         )
         return
 
-    if settings.get("is_running"):
+    async with _start_locks[uid]:
+        # ── Re-check is_running dalam lock — elak race condition antara 2 request serentak ──
+        live_settings = await db.get_promo_settings(uid)
+        if live_settings and live_settings.get("is_running"):
+            logger.info(
+                "[PROMOTE] promote_job_exists — uid=%s | is_running=True, duplicate start dilangkau",
+                uid,
+            )
+            await send_fn(
+                "ℹ️ *Promote sudah berjalan!*\n\nTekan 📊 Status untuk semak status semasa.",
+                parse_mode="Markdown",
+                reply_markup=back_to_menu_kb(),
+            )
+            return
+
+        delay = (live_settings or settings)["delay_minutes"]
+        plan_name = sub["plan"]
+        hours = delay // 60
+        mins  = delay % 60
+        human_delay = f"{hours}j {mins}m" if hours > 0 else f"{mins}m"
+        n_targets = len(groups)
+
+        # ── 1. Set running + daftar scheduler (scheduler TIDAK fire serta-merta) ──
+        await db.set_promo_running(uid, True)
+        scheduler_service.start_promo_job(uid, delay_minutes=delay)
+
+        logger.info(
+            "[PROMOTE] promote_loop_started — uid=%s | %d target | delay=%dm",
+            uid, n_targets, delay,
+        )
+
+        # ── 2. Reply serta-merta untuk maklumkan user ──
         await send_fn(
-            "ℹ️ *Promote sudah berjalan!*\n\nTekan 📊 Status untuk semak status semasa.",
+            f"🚀 *Promote Dimulakan!*\n\n"
+            f"📋 Pelan: *{plan_name}*\n"
+            f"🎯 Target: *{n_targets} kumpulan/channel*\n"
+            f"⏱️ Jarak Masa: *setiap {human_delay}*\n\n"
+            f"⏳ _Menghantar mesej pertama serta-merta..._\n\n"
+            f"⚠️ _Auto-promote boleh menyebabkan akaun anda dihadkan oleh Telegram. "
+            f"Gunakan dengan berhati-hati._",
             parse_mode="Markdown",
             reply_markup=back_to_menu_kb(),
         )
-        return
 
-    delay = settings["delay_minutes"]
-    plan_name = sub["plan"]
-    hours = delay // 60
-    mins  = delay % 60
-    human_delay = f"{hours}j {mins}m" if hours > 0 else f"{mins}m"
-    n_targets = len(groups)
-
-    # ── 1. Set running + daftar scheduler (scheduler TIDAK fire serta-merta) ──
-    await db.set_promo_running(uid, True)
-    scheduler_service.start_promo_job(uid, delay_minutes=delay)
-
-    logger.info(
-        "[PROMOTE] uid=%s | Mulakan promote — %d target | delay=%dm",
-        uid, n_targets, delay,
-    )
-
-    # ── 2. Reply serta-merta untuk maklumkan user ──
-    await send_fn(
-        f"🚀 *Promote Dimulakan!*\n\n"
-        f"📋 Pelan: *{plan_name}*\n"
-        f"🎯 Target: *{n_targets} kumpulan/channel*\n"
-        f"⏱️ Jarak Masa: *setiap {human_delay}*\n\n"
-        f"⏳ _Menghantar mesej pertama serta-merta..._\n\n"
-        f"⚠️ _Auto-promote boleh menyebabkan akaun anda dihadkan oleh Telegram. "
-        f"Gunakan dengan berhati-hati._",
-        parse_mode="Markdown",
-        reply_markup=back_to_menu_kb(),
-    )
-
-    # ── 3. Hantar mesej pertama dalam background (tidak block reply di atas) ──
-    logger.info("[PROMOTE] uid=%s | Mencipta immediate send task...", uid)
-    asyncio.create_task(scheduler_service.run_promo_now(uid, delay_minutes=delay))
+        # ── 3. Hantar mesej pertama dalam background (tidak block reply di atas) ──
+        logger.info("[PROMOTE] uid=%s | Mencipta immediate send task...", uid)
+        asyncio.create_task(scheduler_service.run_promo_now(uid, delay_minutes=delay))
 
 
 async def _do_stop_promote(uid: int, send_fn):

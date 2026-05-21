@@ -207,6 +207,9 @@ async def _resolve_peer(client: TelegramClient, gid: str, target_type: str,
 # Rotation index: {user_id: next_message_index}
 _promo_rotation: dict[int, int] = {}
 
+# Active guard: user_ids yang sedang dalam _run_promo — elak concurrent execute
+_promo_active: set[int] = set()
+
 
 def set_bot(bot):
     global _bot_instance
@@ -222,8 +225,18 @@ def start_promo_job(user_id: int, delay_minutes: int = MIN_DELAY_MINUTES):
     if delay_minutes < MIN_DELAY_MINUTES:
         delay_minutes = MIN_DELAY_MINUTES
     job_id = get_job_id(user_id)
-    if scheduler.get_job(job_id):
+    existing = scheduler.get_job(job_id)
+    if existing:
         scheduler.remove_job(job_id)
+        logger.info(
+            "[PROMO] duplicate_promote_job_removed — user_id=%s | job_id=%s",
+            user_id, job_id,
+        )
+    else:
+        logger.info(
+            "[PROMO] promote_job_created (no existing job) — user_id=%s | job_id=%s",
+            user_id, job_id,
+        )
     # next_run_time = selepas delay — mesej pertama dihantar terus dari promote handler
     next_run_time = datetime.now() + timedelta(minutes=delay_minutes)
     scheduler.add_job(
@@ -238,8 +251,8 @@ def start_promo_job(user_id: int, delay_minutes: int = MIN_DELAY_MINUTES):
     job = scheduler.get_job(job_id)
     next_run = job.next_run_time if job else "?"
     logger.info(
-        "[PROMO] Job DICIPTA — user_id=%s | jarak=%dm | next_scheduled_run=%s",
-        user_id, delay_minutes, next_run,
+        "[PROMO] promote_job_created — user_id=%s | job_id=%s | jarak=%dm | next_scheduled_run=%s",
+        user_id, job_id, delay_minutes, next_run,
     )
 
 
@@ -271,6 +284,18 @@ async def _notify_user(user_id: int, text: str):
 
 async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: int = None):
     label = "IMMEDIATE SEND" if is_immediate else "KITARAN BERKALA"
+
+    # ── Guard: 1 user = 1 active _run_promo — elak concurrent duplicate send ──
+    if user_id in _promo_active:
+        logger.warning(
+            "[PROMO] promote_loop_skipped_duplicate — uid=%s | label=%s | "
+            "satu kitaran sedang berjalan, kitaran baru dilangkau",
+            user_id, label,
+        )
+        return
+
+    _promo_active.add(user_id)
+    logger.info("[PROMO] promote_loop_started — uid=%s | label=%s", user_id, label)
     logger.info("[PROMO] ══════ MULA %s — user_id=%s ══════", label, user_id)
 
     try:
@@ -814,6 +839,8 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
 
     except Exception as e:
         logger.error("[PROMO] Ralat tidak dijangka uid=%s: %s", user_id, e, exc_info=True)
+    finally:
+        _promo_active.discard(user_id)
 
 
 _MY_TZ = pytz.timezone("Asia/Kuala_Lumpur")
