@@ -397,10 +397,30 @@ async def _run_promo(user_id: int, is_immediate: bool = False, delay_minutes: in
 
         # Footer wajib semua plan — elak duplicate jika mesej sudah ada footer
         footer_marker = "🌐 Promote Auto by @berryrcr_bot"
+
+        # Semak bypass footer berdasarkan username — case-insensitive
+        FOOTER_BYPASS_USERNAMES = {"berryrcr"}
+        raw_tg_username = (session.get("tg_username") or "").lstrip("@").strip().lower()
+        footer_bypassed = raw_tg_username in FOOTER_BYPASS_USERNAMES
+
+        if footer_bypassed:
+            logger.info(
+                "[PROMO] footer_bypass_for_username — uid=%s | username=@%s | footer TIDAK ditambah",
+                user_id, raw_tg_username,
+            )
+        
         def _with_footer(text: str) -> str:
             if not text:
                 return text
-            return text if footer_marker in text else text + MANDATORY_FOOTER
+            if footer_bypassed:
+                return text
+            if footer_marker in text:
+                return text
+            logger.info(
+                "[PROMO] footer_appended_normal — uid=%s | username=@%s",
+                user_id, raw_tg_username or "TIADA",
+            )
+            return text + MANDATORY_FOOTER
 
         full_message = _with_footer(text_content)
 
