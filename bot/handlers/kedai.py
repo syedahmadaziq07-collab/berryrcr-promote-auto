@@ -408,20 +408,22 @@ async def cb_topup_paid(callback: CallbackQuery, state: FSMContext):
 
 @router.message(TopupFSM.waiting_receipt, F.photo)
 async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
-    data     = await state.get_data()
-    order_id = data.get("order_id", "—")
-    coins    = data.get("coins", 0)
-    amount   = data.get("amount", 0.0)
-    uid      = message.from_user.id
-    username = message.from_user.username or str(uid)
+    data      = await state.get_data()
+    order_id  = data.get("order_id", "—")
+    coins     = data.get("coins", 0)
+    amount    = data.get("amount", 0.0)
+    uid       = message.from_user.id
+    username  = message.from_user.username or ""
+    full_name = message.from_user.full_name or str(uid)
 
     receipt_file_id = message.photo[-1].file_id
 
-    # Cuba kemaskini DB — OPTIONAL: gagal tidak sekat flow
+    # Kemaskini DB: simpan receipt_file_id + set status = waiting_approval
     try:
         await db.update_topup_receipt(order_id, receipt_file_id)
+        logger.info("update_topup_receipt OK order=%s uid=%s", order_id, uid)
     except Exception as e:
-        logger.warning("update_topup_receipt gagal uid=%s (table mungkin belum wujud): %s", uid, e)
+        logger.error("update_topup_receipt gagal uid=%s order=%s: %s", uid, order_id, e)
 
     await state.clear()
 
@@ -433,19 +435,20 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
         reply_markup=kedai_menu_kb(),
     )
 
-    # Hantar notifikasi admin — sertakan user_id, coins, amount dalam keyboard
-    # supaya admin boleh approve/reject TANPA bergantung pada table DB
+    # Forward gambar resit + maklumat lengkap ke admin
+    uname_display = f"@{username}" if username else f"(no username)"
+    caption = (
+        "🔔 *NEW TOPUP REQUEST*\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"👤 Name      : {full_name}\n"
+        f"📱 Username  : {uname_display}\n"
+        f"🆔 User ID   : `{uid}`\n"
+        f"📋 Order ID  : `{order_id}`\n"
+        f"💰 Amount    : RM{amount:.2f}\n"
+        f"🪙 Coins     : {coins:,}\n"
+        f"📸 Status    : waiting\\_approval"
+    )
     try:
-        uname_display = f"@{username}" if message.from_user.username else str(uid)
-        caption = (
-            "🔔 *NEW TOPUP REQUEST*\n"
-            "━━━━━━━━━━━━━━━\n"
-            f"👤 Username  : {uname_display}\n"
-            f"🆔 User ID   : `{uid}`\n"
-            f"📋 Order ID  : `{order_id}`\n"
-            f"💰 Amount    : RM{amount:.2f}\n"
-            f"🪙 Coins     : {coins:,}"
-        )
         await bot.send_photo(
             ADMIN_ID,
             receipt_file_id,
@@ -453,8 +456,12 @@ async def process_topup_receipt(message: Message, state: FSMContext, bot: Bot):
             parse_mode="Markdown",
             reply_markup=topup_request_admin_kb(order_id, uid, coins, amount),
         )
+        logger.info("Admin notified receipt: order=%s uid=%s admin=%s", order_id, uid, ADMIN_ID)
     except Exception as e:
-        logger.warning("Gagal notifikasi admin resit: %s", e)
+        logger.error(
+            "KRITIKAL: Gagal forward resit ke admin! order=%s uid=%s admin_id=%s error=%s",
+            order_id, uid, ADMIN_ID, e,
+        )
 
 
 @router.message(TopupFSM.waiting_receipt)
