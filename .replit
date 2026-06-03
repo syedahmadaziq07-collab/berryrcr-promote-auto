@@ -57,5 +57,4 @@ packages = ["cargo", "libiconv", "openssl", "rustc"]
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = "587"
 SMTP_USER = "berryshopjyq@gmail.com"
-SMTP_PASS = "fyru grts iasn cyxw"
 SMTP_FROM = "Promote Auto <berryshopjyq@gmail.com>"
