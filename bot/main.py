@@ -10,7 +10,7 @@ from config import BOT_TOKEN
 from handlers import all_routers
 from services import scheduler_service
 from services.supabase_service import get_client
-from services.sqlite_storage import SQLiteStorage
+from aiogram.fsm.storage.memory import MemoryStorage
 from services.subscription_checker import check_expired_subscriptions
 from services import expiry_notifier
 from services import safe_mode_checker
@@ -247,7 +247,11 @@ async def main():
     await check_tables()
 
     bot = Bot(token=token)
-    storage = SQLiteStorage(db_path=os.path.join(os.path.dirname(__file__), "fsm_storage.db"))
+    logger.warning(
+        "Using MemoryStorage — FSM state resets on bot restart. "
+        "Use Redis for production multi-instance setup."
+    )
+    storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
     for router in all_routers:
