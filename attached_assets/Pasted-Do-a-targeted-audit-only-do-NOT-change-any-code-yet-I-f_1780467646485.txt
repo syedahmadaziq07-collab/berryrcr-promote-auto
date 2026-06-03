@@ -1,0 +1,46 @@
+Do a targeted audit only — do NOT change any code yet.
+
+I found a specific pattern:
+- When the ADMIN user (Telegram ID: 5363369071) places a topup order 
+  and uploads receipt → admin receives the photo proof ✅
+- When ANY OTHER customer places a topup order and uploads receipt 
+  → admin does NOT receive the photo proof ❌
+
+This means the bug is NOT about ADMIN_ID being wrong or missing.
+The bug is somewhere in the receipt forwarding logic that behaves 
+differently based on who the customer is.
+
+Please audit ONLY these specific things:
+
+1. In process_topup_receipt (kedai.py):
+   - Is there any if/else that checks user_id or username before forwarding?
+   - Is the order_id retrieved from FSM state or from the message?
+   - When a non-admin customer uploads photo, does the code successfully 
+     retrieve order_id, coins, amount from FSM state?
+   - Add debug print to show what FSM data contains at the moment 
+     photo is received (do not deploy, just show what the print would be)
+
+2. In create_topup_request (database.py):
+   - Is there any filter or condition based on user_id?
+   - When a non-admin customer calls this, does it insert successfully?
+   - Is there any RLS (Row Level Security) in Supabase that might block 
+     INSERT for non-admin users?
+
+3. Check the Supabase table "topup_requests":
+   - What is the RLS policy on this table?
+   - Is the Supabase client using anon key or service_role key?
+   - If using anon key, RLS might block non-admin inserts
+
+4. In update_topup_receipt (database.py):
+   - After our FIX 3 was applied, if this raises ValueError for 
+     non-admin orders, is that error being caught somewhere and 
+     silently swallowed before the admin forward happens?
+
+5. Check order_notifier.py:
+   - For non-admin customers, does "NEW ORDER CREATED" notification 
+     reach admin? (we saw it does based on the screenshot)
+   - But "NEW TOPUP REQUEST" with Approve/Reject buttons — does that 
+     only appear for admin's own order?
+
+Report findings only. No fixes yet.
+Show exact file names, line numbers, and code snippets.
