@@ -1157,11 +1157,21 @@ async def create_topup_request(
 
 async def update_topup_receipt(order_id: str, receipt_file_id: str):
     """Simpan receipt_file_id dan set status = waiting_approval."""
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
     client = await get_client()
-    await client.table("topup_requests").update({
+    result = await client.table("topup_requests").update({
         "receipt_file_id": receipt_file_id,
         "status": "waiting_approval",
     }).eq("order_id", order_id).execute()
+
+    if not result.data:
+        _log.error(
+            "KRITIKAL: update_topup_receipt — tiada row untuk order_id=%s. "
+            "Row mungkin tak wujud dalam DB (create_topup_request gagal sebelum ni).",
+            order_id,
+        )
+        raise ValueError(f"No topup_request row found for order_id={order_id}")
 
 
 async def get_topup_request(order_id: str):

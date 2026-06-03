@@ -291,8 +291,7 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
     import random as _random
     order_id = f"ORD{_random.randint(10000000, 99999999)}"
 
-    # Cuba simpan ke DB — OPTIONAL: gagal tidak sekat flow
-    # (table topup_requests mungkin belum wujud — akan berfungsi setelah SQL dijalankan)
+    # Simpan ke DB — WAJIB berjaya sebelum flow diteruskan
     try:
         await db.create_topup_request(
             order_id=order_id,
@@ -303,10 +302,16 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
         )
         logger.info("topup_request disimpan ke DB: %s uid=%s", order_id, uid)
     except Exception as db_error:
-        logger.warning(
-            "create_topup_request gagal uid=%s order=%s (table mungkin belum wujud): %s",
-            uid, order_id, db_error,
+        logger.error(
+            "KRITIKAL: Gagal create_topup_request! order=%s uid=%s error=%s",
+            order_id, uid, db_error,
         )
+        await callback.message.answer(
+            "❌ Ralat sistem. Sila cuba semula atau hubungi admin.",
+            reply_markup=kedai_menu_kb(),
+        )
+        await state.clear()
+        return
 
     await state.update_data(order_id=order_id, coins=coins, amount=amount)
 
@@ -368,6 +373,8 @@ async def cb_topup_proceed(callback: CallbackQuery, state: FSMContext, bot: Bot)
             parse_mode="Markdown",
             reply_markup=topup_payment_kb(order_id),
         )
+
+    await state.set_state(TopupFSM.waiting_receipt)
 
 
 # ─────────────────────────────────────────────

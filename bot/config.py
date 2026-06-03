@@ -6,7 +6,10 @@ BASE_DIR = Path(__file__).parent
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 API_ID: int = int(os.getenv("API_ID", "0"))
 API_HASH: str = os.getenv("API_HASH", "")
-ADMIN_ID: int = int(os.getenv("ADMIN_ID", "0"))
+_admin_id = os.getenv("ADMIN_ID")
+if not _admin_id:
+    raise ValueError("ADMIN_ID environment variable is missing or empty!")
+ADMIN_ID: int = int(_admin_id)
 
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
